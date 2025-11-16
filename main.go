@@ -7,15 +7,22 @@ import (
 )
 
 func main() {
-	data, err := os.ReadFile("test1.torrent")
+	argsWithoutProg := os.Args[1:]
+	if len(argsWithoutProg) != 1 {
+		fmt.Println("Need only one arg (torrent-file location)")
+		return
+	}
+
+	data, err := os.ReadFile(argsWithoutProg[0])
 	if err != nil {
-		fmt.Println("Ошибка при чтении файла:", err)
+		fmt.Println("Can't read file:", err)
 		return
 	}
 
 	be, err := util.Decode(data)
 
 	if err != nil {
+		fmt.Println("Can't decode file:", err)
 		return
 	}
 
