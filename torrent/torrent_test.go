@@ -9,7 +9,7 @@ import (
 
 func TestTorrentSingleFile(t *testing.T) {
 	data := []byte(
-		"d8:announce19:http://tracker1.com4:infod12:piece lengthi16384e6:pieces40:ABCDEFGHIJKLMNOPQRSTABCDEFGHIJKLMNOPQRST4:name8:file	.txt6:lengthi1000eee",
+		"d8:announce19:http://tracker1.com4:infod12:piece lengthi16384e6:pieces40:ABCDEFGHIJKLMNOPQRSTABCDEFGHIJKLMNOPQRST4:name8:file.txt6:lengthi1000eee",
 	)
 
 	be, err := util.Decode(data)
