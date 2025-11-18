@@ -4,9 +4,15 @@ import "fmt"
 
 func EncodeUrl(b []byte) string {
 	allowed := func(c byte) bool {
-		if c >= '0' && c <= '9' { return true }
-		if c >= 'A' && c <= 'Z' { return true }
-		if c >= 'a' && c <= 'z' { return true }
+		if c >= '0' && c <= '9' {
+			return true
+		}
+		if c >= 'A' && c <= 'Z' {
+			return true
+		}
+		if c >= 'a' && c <= 'z' {
+			return true
+		}
 		switch c {
 		case '.', '-', '_', '~':
 			return true
