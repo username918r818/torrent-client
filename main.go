@@ -1,9 +1,11 @@
 package main
 
 import (
+	"encoding/hex"
 	"fmt"
-	"github.com/username918r818/torrent-client/util"
 	"os"
+
+	"github.com/username918r818/torrent-client/torrent"
 )
 
 func main() {
@@ -19,12 +21,12 @@ func main() {
 		return
 	}
 
-	be, err := util.Decode(data)
+	torrent, err := torrent.New(data)
 
 	if err != nil {
-		fmt.Println("Can't decode file:", err)
+		fmt.Println("Can't build torrent structure:", err)
 		return
 	}
 
-	fmt.Println(be.String())
+	fmt.Println(hex.EncodeToString(torrent.InfoHash[:]))
 }

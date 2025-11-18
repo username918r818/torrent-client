@@ -4,6 +4,8 @@ import (
 	"errors"
 
 	"github.com/username918r818/torrent-client/util"
+
+	"crypto/sha1"
 )
 
 // single file mode: only one file in files
@@ -16,10 +18,17 @@ type Torrent struct {
 		Length uint64
 		Path   []string
 	}
+	InfoHash [20]byte
 }
 
-func New(be *util.Be) (Torrent, error) {
+func New(data []byte) (Torrent, error) {
 	t := Torrent{}
+	be, err := util.Decode(data)
+
+	if err != nil {
+		return t, err
+	}
+
 	if be.Tag != util.BeDict || be.Dict == nil {
 		return t, errors.New("not a dict")
 	}
@@ -76,7 +85,7 @@ func New(be *util.Be) (Torrent, error) {
 		}, len(files.List))
 		for i, v := range files.List {
 			t.Files[i].Length = uint64((*v.Dict)["length"].Int)
-			t.Files[i].Path = make([]string, len((*v.Dict)["path"].List) + 1)
+			t.Files[i].Path = make([]string, len((*v.Dict)["path"].List)+1)
 			t.Files[i].Path[0] = string(name.Str)
 			for j, w := range (*v.Dict)["path"].List {
 				t.Files[i].Path[j+1] = string(w.Str)
@@ -92,6 +101,9 @@ func New(be *util.Be) (Torrent, error) {
 		t.Files[0].Path[0] = string(name.Str)
 		t.Files[0].Length = uint64(info["length"].Int)
 	}
+
+	hBeg, hEnd, err := util.GetIndeces("info", data)
+	t.InfoHash = sha1.Sum(data[hBeg:hEnd])
 
 	return t, nil
 }

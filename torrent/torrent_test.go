@@ -1,10 +1,10 @@
 package torrent_test
 
 import (
+	"encoding/hex"
 	"testing"
 
 	"github.com/username918r818/torrent-client/torrent"
-	"github.com/username918r818/torrent-client/util"
 )
 
 func TestTorrentSingleFile(t *testing.T) {
@@ -12,12 +12,7 @@ func TestTorrentSingleFile(t *testing.T) {
 		"d8:announce19:http://tracker1.com4:infod12:piece lengthi16384e6:pieces40:ABCDEFGHIJKLMNOPQRSTABCDEFGHIJKLMNOPQRST4:name8:file.txt6:lengthi1000eee",
 	)
 
-	be, err := util.Decode(data)
-	if err != nil {
-		t.Fatalf("decode failed: %v", err)
-	}
-
-	tr, err := torrent.New(be)
+	tr, err := torrent.New(data)
 	if err != nil {
 		t.Fatalf("New() failed: %v", err)
 	}
@@ -45,6 +40,12 @@ func TestTorrentSingleFile(t *testing.T) {
 	if len(tr.Files) != 1 {
 		t.Fatalf("should be single-file mode")
 	}
+
+	expectedHash := "dab44c142c1450e6ff20a0eec3e6a983b626cdec"
+
+	if hex.EncodeToString(tr.InfoHash[:]) != expectedHash {
+		t.Fatalf("wrong hash\ngot:\n%v\nexpected:\n%v", hex.EncodeToString(tr.InfoHash[:]), expectedHash)
+	}
 }
 
 func TestTorrentMultiFile(t *testing.T) {
@@ -53,12 +54,7 @@ func TestTorrentMultiFile(t *testing.T) {
 			"OPQRST4:name4:root5:filesld6:lengthi111e4:pathl9:fileA.txteed6:lengthi222e4:pathl9:fileB.txteeeee",
 	)
 
-	be, err := util.Decode(data)
-	if err != nil {
-		t.Fatalf("decode failed: %v", err)
-	}
-
-	tr, err := torrent.New(be)
+	tr, err := torrent.New(data)
 	if err != nil {
 		t.Fatalf("New() failed: %v", err)
 	}
@@ -77,5 +73,11 @@ func TestTorrentMultiFile(t *testing.T) {
 
 	if len(tr.Files) != 2 {
 		t.Fatalf("expected 2 files, got %v", len(tr.Files))
+	}
+
+	expectedHash := "a9e1ca2b74100277ec48a4d4c7264e0c17e35ff9"
+
+	if hex.EncodeToString(tr.InfoHash[:]) != expectedHash {
+		t.Fatalf("wrong hash\ngot:\n%v\nexpected:\n%v", hex.EncodeToString(tr.InfoHash[:]), expectedHash)
 	}
 }
