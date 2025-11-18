@@ -24,7 +24,7 @@ jobs:
         run: go build -v ./...
 
       - name: Format Check
-        run: ! gofmt -d ./.. | read
+        run: gofmt -d ./.. 2>&1 | read; [ $? == 1 ]
 
       - name: Test
         run: go test -v ./...
