@@ -9,7 +9,7 @@ import (
 )
 
 // single file mode: only one file in files
-type Torrent struct {
+type TorrentFile struct {
 	Announce        string
 	ReserveAnnounce []string
 	Pieces          [][20]byte
@@ -21,8 +21,8 @@ type Torrent struct {
 	InfoHash [20]byte
 }
 
-func New(data []byte) (Torrent, error) {
-	t := Torrent{}
+func New(data []byte) (TorrentFile, error) {
+	t := TorrentFile{}
 	be, err := util.Decode(data)
 
 	if err != nil {
