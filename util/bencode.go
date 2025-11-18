@@ -265,7 +265,7 @@ func (d *decoder) getIndeces(key string) (int, int, error) {
 			if err == nil {
 				return beg, end, nil
 			}
-			
+
 		}
 		d.pos++
 		return -1, -1, errors.New("not found")
@@ -274,19 +274,18 @@ func (d *decoder) getIndeces(key string) (int, int, error) {
 		if err := d.checkPos(); err != nil {
 			return -1, -1, err
 		}
-		var beg, end int
-		var err error
 		for d.data[d.pos] != 'e' {
-			beg, end, err = d.getIndeces(key)
+			beg, end, err := d.getIndeces(key)
 			if err != nil {
-				if err.Error() != "not found" {
+				if err.Error() == "not found" {
 					continue
 				}
 				return -1, -1, err
 			}
+			return beg, end, nil
 		}
 		d.pos++
-		return beg, end, err
+		return -1, -1, errors.New("not found")
 
 	case tag >= '0' && tag <= '9':
 		d.pos--

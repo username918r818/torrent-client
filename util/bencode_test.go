@@ -190,6 +190,29 @@ func TestGetIndecesofInfo(t *testing.T) {
 
 }
 
+func TestGetIndecesofInfoInList(t *testing.T) {
+	data := []byte(
+		"lld8:announce19:http://tracker1.com4:infod12:piece lengthi32768e6:pieces40:ABCDEFGHIJKLMNOPQRSTABCDEFGHIJKLMNOPQRST4:name4:root5:filesld6:lengthi111e4:pathl9:fileA.txteed6:lengthi222e4:pathl9:fileB.txteeeeeee",
+	)
+
+	expectedBegin, expectedEnd := 41, 205
+
+	begin, end, err := util.GetIndeces("info", data)
+
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if begin != expectedBegin {
+		t.Errorf("begin = %v, expected %v", begin, expectedBegin)
+	}
+
+	if end != expectedEnd {
+		t.Errorf("end = %v, expected %v", end, expectedEnd)
+	}
+
+}
+
 func TestGetIndecesofName(t *testing.T) {
 	data := []byte(
 		"d4:infod6:lengthi12345e4:name11:example.txt12:piece lengthi16384e6:pieces21:abcdefghijklmnopqrstee" +
