@@ -172,7 +172,7 @@ func TestGetIndecesofInfo(t *testing.T) {
 			"name4:root5:filesld6:lengthi111e4:pathl9:fileA.txteed6:lengthi222e4:pathl9:fileB.txteeeee",
 	)
 
-	expectedBegin, expectedEnd := 39, 219
+	expectedBegin, expectedEnd := 39, 203
 
 	begin, end, err := util.GetIndeces("info", data)
 
