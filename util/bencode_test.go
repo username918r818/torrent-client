@@ -1,8 +1,9 @@
 package util_test
 
 import (
-	"github.com/username918r818/torrent-client/util"
 	"testing"
+
+	"github.com/username918r818/torrent-client/util"
 )
 
 func TestDecodeInt(t *testing.T) {
@@ -162,4 +163,54 @@ func TestDecodeComplexTorrent(t *testing.T) {
 	if len(nestedPath) != 1 || string(nestedPath[0].Str) != "file2.txt" {
 		t.Errorf("expected nested path=file2.txt, got %+v", nestedPath)
 	}
+}
+
+func TestGetIndecesofInfo(t *testing.T) {
+	data := []byte(
+		"d8:announce19:http://tracker1.com4:infod12:piece " +
+			"lengthi32768e6:pieces40:ABCDEFGHIJKLMNOPQRSTABCDEFGHIJKLMNOPQRST4:" +
+			"name4:root5:filesld6:lengthi111e4:pathl9:fileA.txteed6:lengthi222e4:pathl9:fileB.txteeeee",
+	)
+
+	expectedBegin, expectedEnd := 39, 219
+
+	begin, end, err := util.GetIndeces("info", data)
+
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if begin != expectedBegin {
+		t.Errorf("begin = %v, expected %v", begin, expectedBegin)
+	}
+
+	if end != expectedEnd {
+		t.Errorf("end = %v, expected %v", end, expectedEnd)
+	}
+
+}
+
+func TestGetIndecesofName(t *testing.T) {
+	data := []byte(
+		"d4:infod6:lengthi12345e4:name11:example.txt12:piece lengthi16384e6:pieces21:abcdefghijklmnopqrstee" +
+			"8:announce28:http://tracker.test/announce5:filesld6:lengthi67890e" +
+			"4:pathl9:file1.txtd6:lengthi13579e4:pathl9:file2.txteeeeee",
+	)
+
+	expectedBegin, expectedEnd := 108, 139
+
+	begin, end, err := util.GetIndeces("announce", data)
+
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if begin != expectedBegin {
+		t.Errorf("begin = %v, expected %v", begin, expectedBegin)
+	}
+
+	if end != expectedEnd {
+		t.Errorf("end = %v, expected %v", end, expectedEnd)
+	}
+
 }

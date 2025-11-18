@@ -229,3 +229,75 @@ func (be *Be) String() string {
 		return "+++bad Be+++"
 	}
 }
+
+func GetIndeces(key string, b []byte) (int, int, error) {
+	d := decoder{b, 0}
+	return d.getIndeces(key)
+}
+
+func (d *decoder) getIndeces(key string) (int, int, error) {
+	if err := d.checkPos(); err != nil {
+		return -1, -1, err
+	}
+
+	tag := d.data[d.pos]
+	d.pos++
+
+	switch {
+	case tag == BeDict:
+		if err := d.checkPos(); err != nil {
+			return -1, -1, err
+		}
+		for d.data[d.pos] != 'e' {
+			beKey, err := d.decodeBeStr()
+			if err != nil {
+				return -1, -1, err
+			}
+
+			begin := int(d.pos)
+			beg, end, err := d.getIndeces(key)
+			if string(beKey.Str) == key && (err == nil || err.Error() == "not found") {
+				return begin, int(d.pos), nil
+			}
+			if err != nil && err.Error() != "not found" {
+				return -1, -1, err
+			}
+			if err == nil {
+				return beg, end, nil
+			}
+			
+		}
+		d.pos++
+		return -1, -1, errors.New("not found")
+
+	case tag == BeList:
+		if err := d.checkPos(); err != nil {
+			return -1, -1, err
+		}
+		var beg, end int
+		var err error
+		for d.data[d.pos] != 'e' {
+			beg, end, err = d.getIndeces(key)
+			if err != nil {
+				if err.Error() != "not found" {
+					continue
+				}
+				return -1, -1, err
+			}
+		}
+		d.pos++
+		return beg, end, err
+
+	case tag >= '0' && tag <= '9':
+		d.pos--
+		d.decodeBeStr()
+		return -1, -1, errors.New("not found")
+
+	case tag == BeInt:
+		d.decodebeInt()
+		return -1, -1, errors.New("not found")
+
+	default:
+		return -1, -1, errors.New(fmt.Sprint("wrong tag, got:", tag))
+	}
+}
