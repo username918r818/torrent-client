@@ -2,11 +2,9 @@ package message
 
 import (
 	"sync"
-
-	"github.com/username918r818/torrent-client/torrent/piece"
 )
 
-type Downloaded struct {
+type Block struct {
 	Offset int64
 	Length int64
 }
@@ -21,7 +19,7 @@ type IsRangeSaved struct {
 
 type SaveRange struct {
 	InfoHash    [20]byte
-	Pieces      []piece.Piece
+	Pieces      [][]byte
 	PieceLength int64
 	Offset      int64
 	FileOffset  int64
@@ -29,7 +27,7 @@ type SaveRange struct {
 }
 
 type DownloadRange struct {
-	Pieces      []piece.Piece
+	Pieces      [][]byte
 	locks       []sync.Mutex
 	PieceLength int64
 	Offset      int64

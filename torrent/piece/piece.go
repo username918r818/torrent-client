@@ -5,6 +5,7 @@ import (
 	"crypto/sha1"
 	"sync"
 
+	"github.com/username918r818/torrent-client/message"
 	"github.com/username918r818/torrent-client/torrent"
 	"github.com/username918r818/torrent-client/util"
 )
@@ -84,4 +85,22 @@ func InitPieceArray(totalBytes, pieceLength int64) (a PieceArray) {
 	return
 }
 
-func StartPieceWorker(ctx context.Context, pieces *PieceArray, tf *torrent.TorrentFile) {}
+func StartPieceWorker(ctx context.Context, pieces *PieceArray, tf *torrent.TorrentFile, ch message.PieceChannels) {
+	go func() {
+		for {
+			select {
+			case newBlock, ok := (<-ch.PeerHasDownloaded): // TODO
+				_, _ = newBlock, ok
+
+			case ready := (<-ch.FileWorkerReady): // TODO
+				_ = ready
+
+			case isSaved, ok := (<-ch.FileWorkerIsSaved): // TODO
+				_, _ = isSaved, ok
+
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+}

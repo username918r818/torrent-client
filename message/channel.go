@@ -9,12 +9,12 @@ type SupervisorChannels struct {
 type PeerChannels struct {
 	ToDownload         <-chan DownloadRange // need initialize with new peer
 	PeerMessageChannel chan<- PeerMessage
-	DownloadedChannel  chan<- Downloaded
+	DownloadedChannel  chan<- Block
 }
 
 type PieceChannels struct {
 	PostStatsChannel  chan<- Stats
-	PeerHasDownloaded <-chan Downloaded
+	PeerHasDownloaded <-chan Block
 	FileWorkerReady   <-chan Ready
 	FileWorkerIsSaved <-chan IsRangeSaved // need initialize with new torrent
 	FileWorkerToSave  chan<- SaveRange
@@ -40,7 +40,7 @@ func GetChannels() (SupervisorChannels, PeerChannels, PieceChannels, FileChannel
 	sup.GetStatsChannel = stats
 	piece.PostStatsChannel = stats
 
-	downloadedChannel := make(chan Downloaded)
+	downloadedChannel := make(chan Block)
 	peer.DownloadedChannel = downloadedChannel
 	piece.PeerHasDownloaded = downloadedChannel
 
