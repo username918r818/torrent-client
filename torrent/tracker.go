@@ -74,11 +74,11 @@ func (ts *TrackerSession) proceed(ch message.TrackerChannels) {
 	url += fmt.Sprintf("&compact=%v", 1)
 	switch ts.Event {
 	case EventStarted:
-		url += fmt.Sprint("&event=started")
+		url += "&event=started"
 	case EventCompleted:
-		url += fmt.Sprint("&event=completed")
+		url += "&event=completed"
 	case EventStopped:
-		url += fmt.Sprint("&event=stopped")
+		url += "&event=stopped"
 	}
 	ts.Event = EventNone
 
