@@ -24,7 +24,6 @@ type Piece interface {
 }
 
 type rawPiece struct {
-	sync.RWMutex
 	state PieceState
 }
 
@@ -57,6 +56,8 @@ type PieceArray struct {
 	sync.RWMutex // locks on updating stats
 	stats        [6]int64
 	pieces       []Piece
+	locks   []sync.Mutex
+	downloaded   util.List[util.Pair[int]]
 }
 
 func Validate(data []byte, hash [20]byte) bool {
@@ -70,5 +71,6 @@ func InitPieceArray(totalBytes, pieceLength int64) (a PieceArray) {
 		arrLength++
 	}
 	a.pieces = make([]Piece, arrLength)
+	a.locks = make([]sync.Mutex, arrLength)
 	return
 }
