@@ -56,7 +56,7 @@ type PieceArray struct {
 	sync.RWMutex // locks on updating stats
 	stats        [6]int64
 	pieces       []Piece
-	locks   []sync.Mutex
+	locks        []sync.Mutex
 	downloaded   util.List[util.Pair[int]]
 }
 
