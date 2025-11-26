@@ -13,8 +13,9 @@ const (
 	InProgress
 	Downloaded
 	Validated
+	Saving
 	Saved
-	Deleted
+	Corrupted
 )
 
 type Piece interface {
@@ -53,9 +54,9 @@ type PieceValidated = rawPieceWithData
 type PieceSaved = rawPiece
 
 type PieceArray struct {
-	sync.RWMutex
-	length [5]int64
-	pieces []Piece
+	sync.RWMutex // locks on updating stats
+	stats        [6]int64
+	pieces       []Piece
 }
 
 func Validate(data []byte, hash [20]byte) bool {
@@ -63,7 +64,7 @@ func Validate(data []byte, hash [20]byte) bool {
 }
 
 func InitPieceArray(totalBytes, pieceLength int64) (a PieceArray) {
-	a.length[NotStarted] = totalBytes
+	a.stats[NotStarted] = totalBytes
 	arrLength := totalBytes / pieceLength
 	if totalBytes%pieceLength > 0 {
 		arrLength++
