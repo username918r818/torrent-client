@@ -45,7 +45,7 @@ func StartWorkerTracker(ctx context.Context, ts *TrackerSession, ch message.Trac
 			ts.proceed(ch)
 
 		case stats := <-ch.GetStatsChannel:
-			ts.Left = stats[NotStarted]
+			ts.Left = stats[NotStarted] + stats[Downloaded]
 			ts.Downloaded = stats[Validated] + stats[Saving] + stats[Saved]
 			if ts.Left == 0 {
 				ts.Event = EventCompleted
