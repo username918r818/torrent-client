@@ -6,5 +6,5 @@ type Pair[T any] struct {
 
 type List[T comparable] struct {
 	prev, next *List[T]
-	value T
+	value      T
 }
