@@ -1,10 +1,12 @@
 package piece
 
 import (
+	"context"
 	"crypto/sha1"
+	"sync"
+
 	"github.com/username918r818/torrent-client/torrent"
 	"github.com/username918r818/torrent-client/util"
-	"sync"
 )
 
 type PieceState int
@@ -82,4 +84,4 @@ func InitPieceArray(totalBytes, pieceLength int64) (a PieceArray) {
 	return
 }
 
-func StartPieceWorker(pieces *PieceArray, tf *torrent.TorrentFile) {}
+func StartPieceWorker(ctx context.Context, pieces *PieceArray, tf *torrent.TorrentFile) {}

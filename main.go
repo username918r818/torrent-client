@@ -1,10 +1,12 @@
 package main
 
 import (
+	"context"
 	"fmt"
-	"github.com/username918r818/torrent-client/torrent"
 	"log"
 	"os"
+
+	"github.com/username918r818/torrent-client/torrent"
 )
 
 func main() {
@@ -50,6 +52,8 @@ func main() {
 		}
 	}()
 
-	tmp.StartTracker()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	torrent.StartWorkerTracker(ctx, &tmp)
 	select {}
 }

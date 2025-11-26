@@ -1,6 +1,7 @@
 package torrent
 
 import (
+	"context"
 	"crypto/rand"
 	"fmt"
 	"github.com/username918r818/torrent-client/util"
@@ -35,7 +36,7 @@ type TrackerSession struct {
 	Left       int
 }
 
-func (ts *TrackerSession) StartTracker() {
+func StartWorkerTracker(ctx context.Context, ts *TrackerSession) {
 	go func() {
 		peerId := "-UT0001-" + randomDigits(12)
 		copy(ts.PeerId[:], peerId)
@@ -44,6 +45,9 @@ func (ts *TrackerSession) StartTracker() {
 			select {
 			case <-timer.C:
 				ts.proceed()
+
+			case <-ctx.Done():
+				return
 			}
 		}
 	}()
@@ -93,7 +97,8 @@ func (ts *TrackerSession) proceed() {
 		log.Printf("can't decode bencode: %v", err)
 	}
 
-	log.Println(be.String())
+	fmt.Println(be.String())
+	fmt.Println(string((*be.Dict)["peers"].Str))
 
 	ts.Interval = int((*be.Dict)["interval"].Int)
 
