@@ -1,8 +1,9 @@
 package util_test
 
 import (
-	"github.com/username918r818/torrent-client/util"
 	"testing"
+
+	"github.com/username918r818/torrent-client/util"
 )
 
 func TestEncoding(t *testing.T) {

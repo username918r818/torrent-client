@@ -1,11 +1,10 @@
 package torrent
 
 import (
+	"crypto/sha1"
 	"errors"
 
 	"github.com/username918r818/torrent-client/util"
-
-	"crypto/sha1"
 )
 
 // single file mode: only one file in files

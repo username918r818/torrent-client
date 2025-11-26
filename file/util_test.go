@@ -2,10 +2,11 @@ package file_test
 
 import (
 	"bytes"
-	"github.com/username918r818/torrent-client/file"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/username918r818/torrent-client/file"
 )
 
 func TestAlloc(t *testing.T) {
