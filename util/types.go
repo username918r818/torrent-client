@@ -121,3 +121,28 @@ func RemoveRange[T int | int64 | uint64](list *List[Pair[T]], a, b T) *List[Pair
 	node.Value.Second = a
 	return list
 }
+
+func Contains[T int | int64 | uint64](list *List[Pair[T]], a, b T) bool {
+	if a > b {
+		a, b = b, a
+	}
+
+	if list == nil {
+		return false
+	}
+
+	node := list
+
+	for node != nil && (node.Value.First > a || node.Value.Second < b) {
+		node = node.Next
+	}
+
+	if node == nil {
+		return false
+	}
+
+	if node.Value.First <= a && node.Value.Second >= b {
+		return true
+	}
+	return false
+}

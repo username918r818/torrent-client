@@ -363,3 +363,39 @@ func TestRemoveRange(t *testing.T) {
 		}
 	})
 }
+
+func TestConatins(t *testing.T) {
+
+	t.Run("find in empty list", func(t *testing.T) {
+		var list *list
+		result := util.Contains(list, 1, 5)
+		if result {
+			t.Errorf("should be false")
+		}
+	})
+
+	t.Run("find range from single element list", func(t *testing.T) {
+		var list *list
+		list = util.InsertRange(list, 1, 5)
+		result := util.Contains(list, 1, 5)
+		if !result {
+			t.Errorf("should be true")
+		}
+	})
+
+	t.Run("find range from middle", func(t *testing.T) {
+		var list *list
+		list = util.InsertRange(list, 1, 5)
+		list = util.InsertRange(list, 7, 15)
+		result := util.Contains(list, 6, 9)
+		if result {
+			t.Errorf("should be false")
+		}
+
+		result = util.Contains(list, 8, 9)
+		if !result {
+			t.Errorf("should be true")
+			return
+		}
+	})
+}
