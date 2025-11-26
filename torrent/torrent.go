@@ -13,9 +13,9 @@ type TorrentFile struct {
 	Announce        string
 	ReserveAnnounce []string
 	Pieces          [][20]byte
-	PieceLength     uint64
+	PieceLength     int64
 	Files           []struct {
-		Length uint64
+		Length int64
 		Path   []string
 	}
 	InfoHash [20]byte
@@ -65,7 +65,7 @@ func New(data []byte) (TorrentFile, error) {
 		return t, errors.New("no piece length")
 	}
 
-	t.PieceLength = uint64(info["piece length"].Int)
+	t.PieceLength = info["piece length"].Int
 
 	if pieces, ok := info["pieces"]; ok {
 		t.Pieces = make([][20]byte, len(pieces.Str)/20)
@@ -80,11 +80,11 @@ func New(data []byte) (TorrentFile, error) {
 
 	if files, ok := info["files"]; ok {
 		t.Files = make([]struct {
-			Length uint64
+			Length int64
 			Path   []string
 		}, len(files.List))
 		for i, v := range files.List {
-			t.Files[i].Length = uint64((*v.Dict)["length"].Int)
+			t.Files[i].Length = (*v.Dict)["length"].Int
 			t.Files[i].Path = make([]string, len((*v.Dict)["path"].List)+1)
 			t.Files[i].Path[0] = string(name.Str)
 			for j, w := range (*v.Dict)["path"].List {
@@ -94,12 +94,12 @@ func New(data []byte) (TorrentFile, error) {
 		}
 	} else {
 		t.Files = make([]struct {
-			Length uint64
+			Length int64
 			Path   []string
 		}, 1)
 		t.Files[0].Path = make([]string, 1)
 		t.Files[0].Path[0] = string(name.Str)
-		t.Files[0].Length = uint64(info["length"].Int)
+		t.Files[0].Length = info["length"].Int
 	}
 
 	hBeg, hEnd, err := util.GetIndeces("info", data)
