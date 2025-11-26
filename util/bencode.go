@@ -82,7 +82,7 @@ func (d *decoder) decode() (*Be, error) {
 		return d.decodebeInt()
 
 	default:
-		return nil, errors.New(fmt.Sprint("wrong tag, got:", tag))
+		return nil, fmt.Errorf("bencode: wrong tag, got: %v", tag)
 	}
 }
 
@@ -132,11 +132,11 @@ func (d *decoder) decodeBeStr() (*Be, error) {
 	}
 
 	if d.data[d.pos] != ':' {
-		return nil, errors.New(fmt.Sprintf("expected: %v got: %v pos: %v", ':', d.data[d.pos], d.pos))
+		return nil, fmt.Errorf("bencode: expected: %v got: %v pos: %v", ':', d.data[d.pos], d.pos)
 	}
 
 	if d.pos+length > uint64(len(d.data)) {
-		return nil, errors.New(fmt.Sprintf("len(d.data) %v <= d.pos %v + length %v", len(d.data), d.pos, length))
+		return nil, fmt.Errorf("bencode: len(d.data) %v <= d.pos %v + length %v", len(d.data), d.pos, length)
 	}
 
 	var be Be = Be{Tag: BeStr}
@@ -149,11 +149,11 @@ func (d *decoder) decodeBeStr() (*Be, error) {
 
 func (d *decoder) checkPos() error {
 	if len(d.data) == 0 {
-		return errors.New("empty []byte")
+		return errors.New("bencode: empty []byte")
 	}
 
 	if uint64(len(d.data)) <= d.pos {
-		return errors.New("len(d.data) <= d.pos")
+		return errors.New("bencode: len(d.data) <= d.pos")
 	}
 
 	return nil
@@ -167,7 +167,7 @@ func (d *decoder) checkIfE() error {
 	tag := d.data[d.pos]
 
 	if tag != 'e' {
-		return errors.New(fmt.Sprintf("wrong tag, got: %v, expected: %v, pos: %v", tag, 'e', d.pos))
+		return fmt.Errorf("bencode: wrong tag, got: %v, expected: %v, pos: %v", tag, 'e', d.pos)
 	}
 
 	d.pos++
@@ -256,10 +256,10 @@ func (d *decoder) getIndeces(key string) (int, int, error) {
 
 			begin := int(d.pos)
 			beg, end, err := d.getIndeces(key)
-			if string(beKey.Str) == key && (err == nil || err.Error() == "not found") {
+			if string(beKey.Str) == key && (err == nil || err.Error() == "bencode: not found") {
 				return begin, int(d.pos), nil
 			}
-			if err != nil && err.Error() != "not found" {
+			if err != nil && err.Error() != "bencode: not found" {
 				return -1, -1, err
 			}
 			if err == nil {
@@ -268,7 +268,7 @@ func (d *decoder) getIndeces(key string) (int, int, error) {
 
 		}
 		d.pos++
-		return -1, -1, errors.New("not found")
+		return -1, -1, errors.New("bencode: not found")
 
 	case tag == BeList:
 		if err := d.checkPos(); err != nil {
@@ -277,7 +277,7 @@ func (d *decoder) getIndeces(key string) (int, int, error) {
 		for d.data[d.pos] != 'e' {
 			beg, end, err := d.getIndeces(key)
 			if err != nil {
-				if err.Error() == "not found" {
+				if err.Error() == "bencode: not found" {
 					continue
 				}
 				return -1, -1, err
@@ -285,18 +285,18 @@ func (d *decoder) getIndeces(key string) (int, int, error) {
 			return beg, end, nil
 		}
 		d.pos++
-		return -1, -1, errors.New("not found")
+		return -1, -1, errors.New("bencode: not found")
 
 	case tag >= '0' && tag <= '9':
 		d.pos--
 		d.decodeBeStr()
-		return -1, -1, errors.New("not found")
+		return -1, -1, errors.New("bencode: not found")
 
 	case tag == BeInt:
 		d.decodebeInt()
-		return -1, -1, errors.New("not found")
+		return -1, -1, errors.New("bencode: not found")
 
 	default:
-		return -1, -1, errors.New(fmt.Sprint("wrong tag, got:", tag))
+		return -1, -1, fmt.Errorf("bencode: wrong tag, got: %v", tag)
 	}
 }
