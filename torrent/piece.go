@@ -3,6 +3,7 @@ package torrent
 import (
 	"context"
 	"crypto/sha1"
+	"errors"
 	"os"
 	"sync"
 
@@ -62,12 +63,14 @@ type PieceValidated = rawPieceWithDataAndToSaveAndSaved
 type PieceSaved = rawPiece
 
 type PieceArray struct {
-	sync.Mutex // locks on updating stats
-	stats      [6]int64
-	pieces     []Piece
-	locks      []sync.Mutex
-	listLock   sync.Mutex                  // locks for downloaded
-	downloaded util.List[util.Pair[int64]] // used to know ranges of downloaded but not saved yet data
+	sync.Mutex      // locks on updating stats
+	stats           [6]int64
+	pieces          []Piece
+	pieceLength     int64
+	lastPieceLength int64
+	locks           []sync.Mutex
+	listLock        sync.Mutex                  // locks for downloaded
+	downloaded      util.List[util.Pair[int64]] // used to know ranges of downloaded but not saved yet data
 }
 
 func Validate(data []byte, hash [20]byte) bool {
@@ -77,12 +80,34 @@ func Validate(data []byte, hash [20]byte) bool {
 func InitPieceArray(totalBytes, pieceLength int64) (a PieceArray) {
 	a.stats[NotStarted] = totalBytes
 	arrLength := totalBytes / pieceLength
-	if totalBytes%pieceLength > 0 {
+	a.lastPieceLength = totalBytes % pieceLength
+	if a.lastPieceLength > 0 {
 		arrLength++
 	}
 	a.pieces = make([]Piece, arrLength)
 	a.locks = make([]sync.Mutex, arrLength)
+	a.pieceLength = pieceLength
 	return
+}
+
+func UpdatePiece(pieceIndex int, a *PieceArray) ([]byte, error) {
+	a.locks[pieceIndex].Lock()
+	defer a.locks[pieceIndex].Unlock()
+	if a.pieces[pieceIndex].GetState() == NotStarted {
+		var newPiece PieceInProgress
+		newLength := a.pieceLength
+		if pieceIndex == len(a.pieces)-1 {
+			newLength = a.lastPieceLength
+		}
+		newPiece.Data = make([]byte, newLength)
+		a.pieces[pieceIndex] = &newPiece
+		return newPiece.Data, nil
+	}
+
+	if rp, ok := a.pieces[pieceIndex].(*rawPieceWithData); ok {
+		return rp.Data, nil
+	}
+	return nil, errors.New("Piece: can't convert a.pieces[i] to*rawPieceWithData ")
 }
 
 func StartPieceWorker(ctx context.Context, pieces *PieceArray, tf *TorrentFile, fileMap map[string]*os.File, ch message.PieceChannels) {
