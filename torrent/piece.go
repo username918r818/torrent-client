@@ -26,10 +26,13 @@ const (
 type Piece interface {
 	GetState() PieceState
 	SetState(PieceState)
+	GetData() []byte
+	SetData(data []byte)
 }
 
 type rawPiece struct {
 	state PieceState
+	data  []byte
 }
 
 func (r *rawPiece) GetState() PieceState {
@@ -40,27 +43,13 @@ func (r *rawPiece) SetState(s PieceState) {
 	r.state = s
 }
 
-type rawPieceWithData struct {
-	rawPiece
-	Data []byte
+func (r *rawPiece) GetData() []byte {
+	return r.data
 }
 
-type rawPieceWithDataAndDownloaded struct {
-	rawPieceWithData
-	downloaded util.List[util.Pair[int64]]
+func (r *rawPiece) SetData(data []byte) {
+	r.data = data
 }
-
-type rawPieceWithDataAndToSaveAndSaved struct {
-	rawPieceWithData
-	toSave util.List[util.Pair[int64]] // that is not sent to file workers to save
-	saved  util.List[util.Pair[int64]] // that approved to be saved
-}
-
-type PieceNotStarted = rawPiece
-type PieceInProgress = rawPieceWithDataAndDownloaded
-type PieceDownloaded = rawPieceWithData
-type PieceValidated = rawPieceWithDataAndToSaveAndSaved
-type PieceSaved = rawPiece
 
 type PieceArray struct {
 	sync.Mutex      // locks on updating stats
@@ -69,8 +58,10 @@ type PieceArray struct {
 	pieceLength     int64
 	lastPieceLength int64
 	locks           []sync.Mutex
-	listLock        sync.Mutex                  // locks for downloaded
+	listDLock       sync.Mutex                  // locks for downloaded
 	downloaded      util.List[util.Pair[int64]] // used to know ranges of downloaded but not saved yet data
+	listSLock       sync.Mutex                  // locks for toSaved
+	toSave          util.List[util.Pair[int64]] // used to know ranges of downloaded but not saved yet data
 }
 
 func Validate(data []byte, hash [20]byte) bool {
@@ -93,28 +84,60 @@ func InitPieceArray(totalBytes, pieceLength int64) (a PieceArray) {
 func UpdatePiece(pieceIndex int, a *PieceArray) ([]byte, error) {
 	a.locks[pieceIndex].Lock()
 	defer a.locks[pieceIndex].Unlock()
+	if a.pieces[pieceIndex].GetState() != NotStarted && a.pieces[pieceIndex].GetState() != InProgress {
+		return nil, errors.New("Piece: can't update already downloaded piece")
+	}
 	if a.pieces[pieceIndex].GetState() == NotStarted {
-		var newPiece PieceInProgress
+		a.pieces[pieceIndex].SetState(InProgress)
 		newLength := a.pieceLength
 		if pieceIndex == len(a.pieces)-1 {
 			newLength = a.lastPieceLength
 		}
-		newPiece.Data = make([]byte, newLength)
-		a.pieces[pieceIndex] = &newPiece
-		return newPiece.Data, nil
+		a.pieces[pieceIndex].SetData(make([]byte, newLength))
+		return a.pieces[pieceIndex].GetData(), nil
 	}
 
-	if rp, ok := a.pieces[pieceIndex].(*rawPieceWithData); ok {
-		return rp.Data, nil
-	}
-	return nil, errors.New("Piece: can't convert a.pieces[i] to*rawPieceWithData ")
+	return a.pieces[pieceIndex].GetData(), nil
 }
 
 func StartPieceWorker(ctx context.Context, pieces *PieceArray, tf *TorrentFile, fileMap map[string]*os.File, ch message.PieceChannels) {
 	for {
 		select {
-		case newBlock, ok := (<-ch.PeerHasDownloaded): // TODO
-			_, _ = newBlock, ok
+		case newBlock := <-ch.PeerHasDownloaded:
+			pieceIndex := newBlock.Offset / pieces.pieceLength
+			pieceLowerBound := pieceIndex * pieces.pieceLength
+			pieceUpperBound := pieceLowerBound + pieces.pieceLength
+			if int(pieceIndex) == len(pieces.pieces)-1 {
+				pieceUpperBound = pieceLowerBound + pieces.lastPieceLength
+			}
+
+			pieces.listDLock.Lock()
+			pieces.downloaded = *util.InsertRange(&pieces.downloaded, newBlock.Offset, newBlock.Offset+newBlock.Length)
+			checkRange := util.Contains(&pieces.downloaded, pieceLowerBound, pieceUpperBound)
+			pieces.listDLock.Unlock()
+
+			ns, sai := -newBlock.Length, newBlock.Length
+			validated := false
+			if checkRange {
+				if Validate(pieces.pieces[pieceIndex].GetData(), tf.Pieces[pieceIndex]) {
+					validated = true
+					pieces.listSLock.Lock()
+					pieces.toSave = *util.InsertRange(&pieces.toSave, pieceLowerBound, pieceUpperBound)
+					pieces.listSLock.Unlock()
+				} else {
+					ns += pieceUpperBound - pieceLowerBound
+				}
+				sai += pieceLowerBound - pieceUpperBound
+			}
+
+			pieces.Lock()
+			pieces.stats[NotStarted] += ns
+			pieces.stats[Downloaded] += sai
+			if validated {
+				pieces.stats[Validated] += pieceUpperBound - pieceLowerBound
+			}
+			ch.PostStatsChannel <- pieces.stats
+			pieces.Unlock()
 
 		case ready := (<-ch.FileWorkerReady): // TODO
 			_ = ready
