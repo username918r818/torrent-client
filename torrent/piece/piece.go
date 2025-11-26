@@ -2,6 +2,7 @@ package piece
 
 import (
 	"crypto/sha1"
+	"github.com/username918r818/torrent-client/torrent"
 	"github.com/username918r818/torrent-client/util"
 	"sync"
 )
@@ -37,19 +38,24 @@ func (r *rawPiece) SetState(s PieceState) {
 
 type rawPieceWithData struct {
 	rawPiece
-	Hash [20]byte
 	Data []byte
 }
 
-type rawPieceWithDataAndBlockList struct {
+type rawPieceWithDataAndDownloaded struct {
 	rawPieceWithData
 	downloaded util.List[util.Pair[int64]]
 }
 
+type rawPieceWithDataAndToSaveAndSaved struct {
+	rawPieceWithData
+	toSave util.List[util.Pair[int64]] // that is not sent to file workers to save
+	saved  util.List[util.Pair[int64]] // that approved to be saved
+}
+
 type PieceNotStarted = rawPiece
-type PieceInProgress = rawPieceWithDataAndBlockList
+type PieceInProgress = rawPieceWithDataAndDownloaded
 type PieceDownloaded = rawPieceWithData
-type PieceValidated = rawPieceWithData
+type PieceValidated = rawPieceWithDataAndToSaveAndSaved
 type PieceSaved = rawPiece
 
 type PieceArray struct {
@@ -57,7 +63,8 @@ type PieceArray struct {
 	stats        [6]int64
 	pieces       []Piece
 	locks        []sync.Mutex
-	downloaded   util.List[util.Pair[int]]
+	listLock     sync.Mutex                  // locks for downloaded
+	downloaded   util.List[util.Pair[int64]] // used to know ranges of downloaded but not saved yet data
 }
 
 func Validate(data []byte, hash [20]byte) bool {
@@ -74,3 +81,5 @@ func InitPieceArray(totalBytes, pieceLength int64) (a PieceArray) {
 	a.locks = make([]sync.Mutex, arrLength)
 	return
 }
+
+func StartPieceWorker(pieces *PieceArray, tf *torrent.TorrentFile) {}
