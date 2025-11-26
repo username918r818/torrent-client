@@ -2,6 +2,7 @@ package piece
 
 import (
 	"crypto/sha1"
+	"github.com/username918r818/torrent-client/util"
 	"sync"
 )
 
@@ -42,7 +43,7 @@ type rawPieceWithData struct {
 
 type rawPieceWithDataAndBlockMap struct {
 	rawPieceWithData
-	rbt any
+	downloaded util.List[util.Pair[int64]]
 }
 
 type PieceNotStarted = rawPiece
