@@ -64,3 +64,60 @@ func InsertRange[T int | int64 | uint64](list *List[Pair[T]], a, b T) *List[Pair
 
 	return list
 }
+
+func RemoveRange[T int | int64 | uint64](list *List[Pair[T]], a, b T) *List[Pair[T]] {
+	if a > b {
+		a, b = b, a
+	}
+
+	if list == nil {
+		return nil
+	}
+
+	node := list
+
+	for node != nil && (node.Value.First > a || node.Value.Second < b) {
+		node = node.Next
+	}
+
+	if node == nil {
+		return list
+	}
+
+	left, right := node.Prev, node.Next
+
+	if node.Value.First == a {
+		node.Value.First = b
+	}
+
+	if node.Value.Second == b {
+		node.Value.Second = a
+	}
+
+	if node.Value.First > node.Value.Second {
+		if left == nil {
+			if right == nil {
+				return nil
+			}
+			right.Prev = nil
+			return right
+		}
+		left.Next = right
+		if right != nil {
+			right.Prev = left
+		}
+		return list
+	}
+
+	if node.Value.First == b || node.Value.Second == a {
+		return list
+	}
+
+	next := &List[Pair[T]]{node, node.Next, Pair[T]{b, node.Value.Second}}
+	if node.Next != nil {
+		node.Next.Prev = next
+	}
+	node.Next = next
+	node.Value.Second = a
+	return list
+}
