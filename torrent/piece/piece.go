@@ -41,15 +41,15 @@ type rawPieceWithData struct {
 	Data []byte
 }
 
-type rawPieceWithDataAndBlockMap struct {
+type rawPieceWithDataAndBlockList struct {
 	rawPieceWithData
 	downloaded util.List[util.Pair[int64]]
 }
 
 type PieceNotStarted = rawPiece
-type PieceInProgress = rawPieceWithData
+type PieceInProgress = rawPieceWithDataAndBlockList
 type PieceDownloaded = rawPieceWithData
-type PieceValidated = rawPieceWithDataAndBlockMap
+type PieceValidated = rawPieceWithData
 type PieceSaved = rawPiece
 
 type PieceArray struct {
