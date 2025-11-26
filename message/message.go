@@ -1,6 +1,7 @@
 package message
 
 import (
+	"os"
 	"sync"
 )
 
@@ -9,7 +10,7 @@ type Block struct {
 	Length int64
 }
 
-type Ready bool
+type Ready = bool
 
 type IsRangeSaved struct {
 	IsSaved bool
@@ -24,6 +25,8 @@ type SaveRange struct {
 	Offset      int64
 	FileOffset  int64
 	Length      int64
+	File        *os.File
+	Callback    chan IsRangeSaved
 }
 
 type DownloadRange struct {
@@ -46,3 +49,5 @@ type PeerError struct {
 }
 
 type Stats = [6]int64
+
+type Peers = [][6]byte

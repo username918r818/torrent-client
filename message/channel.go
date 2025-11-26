@@ -3,7 +3,12 @@ package message
 type SupervisorChannels struct {
 	ToPeerWorkerToDownload map[[6]byte]chan<- DownloadRange
 	FromPeerWorker         <-chan PeerMessage
-	GetStatsChannel        chan<- Stats
+	GetPeers               <-chan Peers
+}
+
+type TrackerChannels struct {
+	SendPeers       chan<- Peers
+	GetStatsChannel <-chan Stats
 }
 
 type PeerChannels struct {
@@ -26,8 +31,9 @@ type FileChannels struct {
 	ToSaveChannel <-chan SaveRange
 }
 
-func GetChannels() (SupervisorChannels, PeerChannels, PieceChannels, FileChannels) {
+func GetChannels() (SupervisorChannels, TrackerChannels, PeerChannels, PieceChannels, FileChannels) {
 	var sup SupervisorChannels
+	var tra TrackerChannels
 	var peer PeerChannels
 	var piece PieceChannels
 	var file FileChannels
@@ -36,8 +42,12 @@ func GetChannels() (SupervisorChannels, PeerChannels, PieceChannels, FileChannel
 	peerMessage := make(chan PeerMessage)
 	sup.FromPeerWorker = peerMessage
 	peer.PeerMessageChannel = peerMessage
+	peerListCh := make(chan Peers)
+	sup.GetPeers = peerListCh
+	tra.SendPeers = peerListCh
+
 	stats := make(chan Stats)
-	sup.GetStatsChannel = stats
+	tra.GetStatsChannel = stats
 	piece.PostStatsChannel = stats
 
 	downloadedChannel := make(chan Block)
@@ -52,7 +62,7 @@ func GetChannels() (SupervisorChannels, PeerChannels, PieceChannels, FileChannel
 	piece.FileWorkerToSave = fileWorkerToSave
 	file.ToSaveChannel = fileWorkerToSave
 
-	return sup, peer, piece, file
+	return sup, tra, peer, piece, file
 }
 
 func AddNewPeer(sup SupervisorChannels, peer PeerChannels, peerId [6]byte) PeerChannels {

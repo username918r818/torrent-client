@@ -8,9 +8,9 @@ import (
 	"log"
 	"net/http"
 	"strings"
-	"sync"
 	"time"
 
+	"github.com/username918r818/torrent-client/message"
 	"github.com/username918r818/torrent-client/util"
 )
 
@@ -24,37 +24,39 @@ const (
 type TrackerSession struct {
 	TorrentFile *TorrentFile
 	Port        int
-	PeerChannel chan<- [][6]byte
 	PeerId      [20]byte
 	TrackerId   string
 	Interval    int
 
-	Mutex sync.Mutex
-
 	Event      int
-	Uploaded   int
-	Downloaded int
-	Left       int
+	Uploaded   int64
+	Downloaded int64
+	Left       int64
 }
 
-func StartWorkerTracker(ctx context.Context, ts *TrackerSession) {
-	go func() {
-		peerId := "-UT0001-" + randomDigits(12)
+func StartWorkerTracker(ctx context.Context, ts *TrackerSession, ch message.TrackerChannels) {
+	ts.Event = EventStarted
+	peerId := "-UT0001-" + randomDigits(12)
+	for {
 		copy(ts.PeerId[:], peerId)
-		for {
-			timer := time.NewTimer(time.Duration(ts.Interval) * time.Second)
-			select {
-			case <-timer.C:
-				ts.proceed()
+		timer := time.NewTimer(time.Duration(ts.Interval) * time.Second)
+		select {
+		case <-timer.C:
+			ts.proceed(ch)
 
-			case <-ctx.Done():
-				return
+		case stats := <-ch.GetStatsChannel:
+			ts.Left = stats[NotStarted]
+			ts.Downloaded = stats[Validated] + stats[Saving] + stats[Saved]
+			if ts.Left == 0 {
+				ts.Event = EventCompleted
 			}
+		case <-ctx.Done():
+			return
 		}
-	}()
+	}
 }
 
-func (ts *TrackerSession) proceed() {
+func (ts *TrackerSession) proceed(ch message.TrackerChannels) {
 	url := ts.TorrentFile.Announce
 	infoHash := util.EncodeUrl(ts.TorrentFile.InfoHash[:])
 	sep := "?"
@@ -64,8 +66,6 @@ func (ts *TrackerSession) proceed() {
 	url += fmt.Sprintf("%sinfo_hash=%v", sep, infoHash)
 	peer_id := util.EncodeUrl(ts.PeerId[:])
 	url += fmt.Sprintf("&peer_id=%v", peer_id)
-
-	ts.Mutex.Lock()
 
 	url += fmt.Sprintf("&port=%v", ts.Port)
 	url += fmt.Sprintf("&uploaded=%v", ts.Uploaded)
@@ -81,8 +81,6 @@ func (ts *TrackerSession) proceed() {
 		url += fmt.Sprint("&event=stopped")
 	}
 	ts.Event = EventNone
-
-	ts.Mutex.Unlock()
 
 	resp, err := http.Get(url)
 	if err != nil {
@@ -109,23 +107,8 @@ func (ts *TrackerSession) proceed() {
 		copy(peers[i][:], peersBin[i*6:(i+1)*6])
 	}
 
-	ts.sendPeers(peers)
+	ch.SendPeers <- peers
 
-}
-
-func (ts *TrackerSession) sendPeers(peers [][6]byte) {
-	if ts.PeerChannel == nil {
-		return
-	}
-
-	defer func() {
-		recover()
-	}()
-
-	select {
-	case ts.PeerChannel <- peers:
-	default:
-	}
 }
 
 func randomDigits(n int) string {

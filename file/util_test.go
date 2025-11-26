@@ -16,7 +16,7 @@ func TestAlloc(t *testing.T) {
 		filePath := filepath.Join(tempDir, "file1.txt")
 
 		files := []struct {
-			Length uint64
+			Length int64
 			Path   []string
 		}{
 			{Length: 1024, Path: []string{tempDir, "file1.txt"}},
@@ -34,7 +34,7 @@ func TestAlloc(t *testing.T) {
 	})
 	t.Run("empty path", func(t *testing.T) {
 		files := []struct {
-			Length uint64
+			Length int64
 			Path   []string
 		}{
 			{Length: 1024, Path: []string{}},
@@ -51,7 +51,7 @@ func TestAlloc(t *testing.T) {
 
 	t.Run("directory creation error", func(t *testing.T) {
 		files := []struct {
-			Length uint64
+			Length int64
 			Path   []string
 		}{
 			{Length: 1024, Path: []string{"/invalid:dir", "file1.txt"}},

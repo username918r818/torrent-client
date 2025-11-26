@@ -9,7 +9,7 @@ import (
 )
 
 func Alloc(files []struct {
-	Length uint64
+	Length int64
 	Path   []string
 }) (map[string]*os.File, error) {
 	m := make(map[string]*os.File, len(files))

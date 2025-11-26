@@ -1,12 +1,12 @@
-package piece
+package torrent
 
 import (
 	"context"
 	"crypto/sha1"
+	"os"
 	"sync"
 
 	"github.com/username918r818/torrent-client/message"
-	"github.com/username918r818/torrent-client/torrent"
 	"github.com/username918r818/torrent-client/util"
 )
 
@@ -62,12 +62,12 @@ type PieceValidated = rawPieceWithDataAndToSaveAndSaved
 type PieceSaved = rawPiece
 
 type PieceArray struct {
-	sync.RWMutex // locks on updating stats
-	stats        [6]int64
-	pieces       []Piece
-	locks        []sync.Mutex
-	listLock     sync.Mutex                  // locks for downloaded
-	downloaded   util.List[util.Pair[int64]] // used to know ranges of downloaded but not saved yet data
+	sync.Mutex // locks on updating stats
+	stats      [6]int64
+	pieces     []Piece
+	locks      []sync.Mutex
+	listLock   sync.Mutex                  // locks for downloaded
+	downloaded util.List[util.Pair[int64]] // used to know ranges of downloaded but not saved yet data
 }
 
 func Validate(data []byte, hash [20]byte) bool {
@@ -85,22 +85,21 @@ func InitPieceArray(totalBytes, pieceLength int64) (a PieceArray) {
 	return
 }
 
-func StartPieceWorker(ctx context.Context, pieces *PieceArray, tf *torrent.TorrentFile, ch message.PieceChannels) {
-	go func() {
-		for {
-			select {
-			case newBlock, ok := (<-ch.PeerHasDownloaded): // TODO
-				_, _ = newBlock, ok
+func StartPieceWorker(ctx context.Context, pieces *PieceArray, tf *TorrentFile, fileMap map[string]*os.File, ch message.PieceChannels) {
+	for {
+		select {
+		case newBlock, ok := (<-ch.PeerHasDownloaded): // TODO
+			_, _ = newBlock, ok
 
-			case ready := (<-ch.FileWorkerReady): // TODO
-				_ = ready
+		case ready := (<-ch.FileWorkerReady): // TODO
+			_ = ready
 
-			case isSaved, ok := (<-ch.FileWorkerIsSaved): // TODO
-				_, _ = isSaved, ok
+		case isSaved, ok := (<-ch.FileWorkerIsSaved): // TODO
+			_, _ = isSaved, ok
 
-			case <-ctx.Done():
-				return
-			}
+		case <-ctx.Done():
+			return
 		}
-	}()
+	}
+
 }

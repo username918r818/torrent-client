@@ -1,11 +1,11 @@
-package piece_test
+package torrent_test
 
 import (
 	"encoding/hex"
 	"strings"
 	"testing"
 
-	"github.com/username918r818/torrent-client/torrent/piece"
+	"github.com/username918r818/torrent-client/torrent"
 )
 
 func TestPieceValidation(t *testing.T) {
@@ -22,7 +22,7 @@ func TestPieceValidation(t *testing.T) {
 		var hash [20]byte
 		copy(hash[:], hashS)
 
-		if !piece.Validate(data, hash) {
+		if !torrent.Validate(data, hash) {
 			t.Errorf("expected validation to succeed, but it failed")
 		}
 	})
@@ -40,7 +40,7 @@ func TestPieceValidation(t *testing.T) {
 		var hash [20]byte
 		copy(hash[:], hashS)
 
-		if piece.Validate(data, hash) {
+		if torrent.Validate(data, hash) {
 			t.Errorf("expected validation to fail, but it succeeded")
 		}
 	})
