@@ -148,7 +148,7 @@ func StartSupervisor(ctx context.Context, torrentFile TorrentFile, port int) {
 	pieceArray := InitPieceArray(totalBytes, torrentFile.PieceLength)
 	pieceCh.FileWorkerIsSaved = make(<-chan message.IsRangeSaved)
 
-	for range 3 {
+	for range 20 {
 		wgPiece.Go(func() { StartPieceWorker(ctx, &pieceArray, &torrentFile, fileMap, pieceCh) })
 	}
 
@@ -158,12 +158,12 @@ func StartSupervisor(ctx context.Context, torrentFile TorrentFile, port int) {
 	peerBitFields := make(map[[6]byte][]byte)
 	var peerQueue *util.List[[6]byte]
 
-	availablePeers := 3
+	availablePeers := 5
 
 	for {
 		select {
 		case msg := <-ch.FromPeerWorker:
-			// slog.Info("Supervisor: received new message")
+			slog.Info(fmt.Sprintf("Supervisor: received new message with type %d", msg.Id))
 			switch msg.Id {
 			case IdDead:
 				slog.Info("Supervisor: new dead")
@@ -214,10 +214,10 @@ func StartSupervisor(ctx context.Context, torrentFile TorrentFile, port int) {
 				peerState[msg.PeerId] = PeerChoking
 
 			case IdUnchoke:
-				// slog.Info("Supervisor: unchoke")
+				slog.Info("Supervisor: unchoke")
 				peerState[msg.PeerId] = PeerWaiting
 				if peerState[msg.PeerId] == PeerWaiting {
-					// slog.Info("Supervisor: searching for task123")
+					slog.Info("Supervisor: searching for task123")
 
 					task, err := findTask(&pieceArray, peerBitFields[msg.PeerId], int(pieceArray.pieceLength), tasksPeers, peerTasks, msg.PeerId)
 					// slog.Info("Supervisor: ended search for task")

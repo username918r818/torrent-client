@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net"
@@ -70,6 +71,37 @@ func readMessage(conn net.Conn, peerId [6]byte) (message.PeerMessage, error) {
 	return msg, nil
 }
 
+func infiniteReadingMessage(conn net.Conn, peerId [6]byte, toWriter chan<- byte, toSup chan<- message.PeerMessage, toPiece chan<- message.Block, a *PieceArray) {
+	for {
+		msg, err := readMessage(conn, peerId)
+		if err != nil {
+			slog.Error("peer reader: " + err.Error())
+			msg := message.PeerMessage{}
+			msg.PeerId = peerId
+			msg.Id = IdDead
+			toSup <- msg
+			toWriter <- IdDead
+			return
+		}
+		if msg.Id == 0 && msg.Length == 0 {
+			msg.Id = IdKeepAlive
+		}
+		toSup <- msg
+		toWriter <- msg.Id
+		if msg.Id == IdPiece {
+			index, begin, block := int(binary.BigEndian.Uint32(msg.Payload[:4])), int64(binary.BigEndian.Uint32(msg.Payload[4:8])), msg.Payload[8:]
+			tmpB, err := UpdatePiece(index, a)
+			if err != nil {
+				slog.Error("Peer: " + err.Error())
+				break
+			}
+			copy(tmpB[begin:], block)
+			var tmpOffset, length int64 = int64(index)*int64(a.pieceLength) + int64(begin), int64(len(block))
+			toPiece <- message.Block{Offset: tmpOffset, Length: length}
+		}
+	}
+}
+
 func writeMessage(conn net.Conn, msg []byte) error {
 	conn.SetWriteDeadline(time.Now().Add(3 * time.Minute))
 	_, err := conn.Write(msg)
@@ -78,6 +110,13 @@ func writeMessage(conn net.Conn, msg []byte) error {
 	}
 
 	return nil
+}
+
+func sendBitField(conn net.Conn, length int) error {
+	msg := make([]byte, 5+length)
+	binary.BigEndian.PutUint32(msg[0:4], uint32(length+1))
+	msg[4] = IdBitfield
+	return writeMessage(conn, msg)
 }
 
 func sendInterested(conn net.Conn) error {
@@ -99,7 +138,7 @@ func sendRequest(conn net.Conn, index, begin, length uint32) error {
 
 func handshakeRead(conn net.Conn, infoHash [20]byte) error {
 	buf := make([]byte, 1)
-	conn.SetReadDeadline(time.Now().Add(3 * time.Minute))
+	conn.SetReadDeadline(time.Now().Add(50 * time.Second))
 	_, err := conn.Read(buf[:])
 	if err != nil {
 		return err
@@ -108,7 +147,7 @@ func handshakeRead(conn net.Conn, infoHash [20]byte) error {
 	pStrLen := buf[0]
 
 	buf = make([]byte, pStrLen+20+20+8)
-	conn.SetReadDeadline(time.Now().Add(3 * time.Minute))
+	conn.SetReadDeadline(time.Now().Add(50 * time.Second))
 	_, err = conn.Read(buf[:])
 	if err != nil {
 		return err
@@ -136,11 +175,9 @@ func handshakeWrite(conn net.Conn, pstr string, infoHash [20]byte, peerId [20]by
 	return writeMessage(conn, msg)
 }
 
-func download(conn net.Conn, task message.DownloadRange, ch message.PeerChannels, a *PieceArray, peer [6]byte, ps *peerStatus) error {
-
+func download(conn net.Conn, task message.DownloadRange, ch message.PeerChannels, a *PieceArray, peer [6]byte, ps *peerStatus, fromReader <-chan byte) error {
 	// slog.Info("Peer: downloading")
 	curIndex := task.Offset
-	requestQueue := 0
 
 	if !ps.interested {
 		err := sendInterested(conn)
@@ -150,8 +187,8 @@ func download(conn net.Conn, task message.DownloadRange, ch message.PeerChannels
 		}
 	}
 
-	for curIndex < task.Length+task.Offset || requestQueue != 0 {
-		for !ps.choked && requestQueue < 5 && curIndex < task.Length+task.Offset {
+	for curIndex < task.Length+task.Offset {
+		for !ps.choked && curIndex < task.Length+task.Offset {
 			index := curIndex / a.pieceLength
 			begin := curIndex % a.pieceLength
 			length := int64(BlockSize)
@@ -162,38 +199,26 @@ func download(conn net.Conn, task message.DownloadRange, ch message.PeerChannels
 				length = task.Offset + task.Length - curIndex
 			}
 			err := sendRequest(conn, uint32(index), uint32(begin), uint32(length))
-			requestQueue++
 			if err != nil {
 				return err
 			}
 			curIndex += length
 		}
-		msg, err := readMessage(conn, peer)
-		if err != nil {
-			return err
-		}
-		if msg.Id == 0 && msg.Length == 0 {
-			msg.Id = IdKeepAlive
-		}
-		switch msg.Id {
-		case IdChoke:
-			ps.choked = true
-			return nil
-
-		case IdPiece:
-			// slog.Info("Peer: received new piece")
-			index, begin, block := int(binary.BigEndian.Uint32(msg.Payload[:4])), int64(binary.BigEndian.Uint32(msg.Payload[4:8])), msg.Payload[8:]
-			tmpB, err := UpdatePiece(index, a)
-			if err != nil {
-				slog.Error("Peer: " + err.Error())
-				break
+		exitLoop := false
+		for !exitLoop {
+			select {
+			case msgId := <-fromReader:
+				switch {
+				case msgId == IdChoke:
+					ps.choked = true
+					return nil
+				case msgId == IdUnchoke:
+					ps.choked = false
+				}
+			default:
+				exitLoop = true
 			}
-			copy(tmpB[begin:], block)
-			var tmpOffset, length int64 = int64(index)*int64(a.pieceLength) + int64(begin), int64(len(block))
-			ch.DownloadedChannel <- message.Block{Offset: tmpOffset, Length: length}
-			requestQueue--
 		}
-		ch.PeerMessageChannel <- msg
 	}
 
 	msg := message.PeerMessage{}
@@ -209,7 +234,7 @@ func StartPeerWorker(ctx context.Context, ch message.PeerChannels, a *PieceArray
 	ip := fmt.Sprintf("%d.%d.%d.%d", peer[0], peer[1], peer[2], peer[3])
 	port := int64(peer[4])<<8 | int64(peer[5])
 	addr := ip + ":" + strconv.FormatInt(port, 10)
-	conn, err := net.DialTimeout("tcp", addr, 10*time.Second)
+	conn, err := net.DialTimeout("tcp", addr, 30*time.Second)
 	death := func(err error) {
 		slog.Info("Peer: " + err.Error())
 		msg := message.PeerMessage{}
@@ -237,6 +262,33 @@ func StartPeerWorker(ctx context.Context, ch message.PeerChannels, a *PieceArray
 		return
 	}
 
+	msg, err := readMessage(conn, peer)
+
+	if err != nil {
+		death(err)
+		return
+	}
+
+	ch.PeerMessageChannel <- msg
+
+	if msg.Id != IdBitfield {
+		death(errors.New("peer: not bitfield after handshake"))
+		return
+	}
+
+	// err = sendBitField(conn, len(a.pieces))
+
+	// if err != nil {
+	// 	death(err)
+	// 	return
+	// }
+
+	fromReader := make(chan byte)
+
+	go infiniteReadingMessage(conn, peer, fromReader, ch.PeerMessageChannel, ch.DownloadedChannel, a)
+
+	time.Sleep(5 * time.Second)
+
 	err = sendInterested(conn)
 
 	if err != nil {
@@ -249,12 +301,12 @@ func StartPeerWorker(ctx context.Context, ch message.PeerChannels, a *PieceArray
 	// slog.Info("Peer worker: survived before loop")
 
 	for {
-		timer := time.NewTimer(time.Second * 1)
+		timer := time.NewTimer(time.Millisecond * 5000)
 		select {
 		case task := <-ch.ToDownload:
 			// slog.Info("Peer worker: got a task")
 
-			err = download(conn, task, ch, a, peer, &ps)
+			err = download(conn, task, ch, a, peer, &ps, fromReader)
 			if err != nil {
 				death(err)
 				timer.Stop()
@@ -262,19 +314,20 @@ func StartPeerWorker(ctx context.Context, ch message.PeerChannels, a *PieceArray
 			}
 		case <-timer.C:
 			timer.Stop()
-			msg, err := readMessage(conn, peer)
+			var keepAlive [4]byte
+			err := writeMessage(conn, keepAlive[:])
 			if err != nil {
 				death(err)
 				timer.Stop()
 				return
 			}
-			if msg.Id == IdChoke {
+		case byteId := <-fromReader:
+			if byteId == IdChoke {
 				ps.choked = true
 			}
-			if msg.Id == IdUnchoke {
+			if byteId == IdUnchoke {
 				ps.choked = false
 			}
-			ch.PeerMessageChannel <- msg
 		case <-ctx.Done():
 			timer.Stop()
 			return
