@@ -148,12 +148,13 @@ func handshakeWrite(conn net.Conn, pstr string, infoHash [20]byte, peerId [20]by
 	return writeMessage(conn, msg)
 }
 
-func download(conn net.Conn, task message.DownloadRange, ch message.PeerChannels, a *PieceArray, peer [6]byte, ps peerStatus) error {
+func download(conn net.Conn, task message.DownloadRange, ch message.PeerChannels, a *PieceArray, peer [6]byte, ps *peerStatus) error {
 	curIndex := task.Offset
 	requestQueue := 0
 
 	if !ps.interested {
 		err := sendInterested(conn)
+		ps.interested = true
 		if err != nil {
 			return err
 		}
@@ -207,6 +208,12 @@ func download(conn net.Conn, task message.DownloadRange, ch message.PeerChannels
 
 func StartPeerWorker(ctx context.Context, ch message.PeerChannels, a *PieceArray, peer [6]byte, infoHash [20]byte, peerId [20]byte) {
 	slog.Info("Peer worker: started")
+	{
+		msg := message.PeerMessage{}
+		msg.Id = IdReady
+		msg.PeerId = peer
+		ch.PeerMessageChannel <- msg
+	}
 	ip := fmt.Sprintf("%d.%d.%d.%d", peer[0], peer[1], peer[2], peer[3])
 	port := int64(peer[4])<<8 | int64(peer[5])
 	addr := ip + ":" + strconv.FormatInt(port, 10)
@@ -227,21 +234,31 @@ func StartPeerWorker(ctx context.Context, ch message.PeerChannels, a *PieceArray
 	// slog.Info("Peer worker: 2")
 
 	err = handshakeWrite(conn, BitTorrentPstr, infoHash, peerId)
-	// slog.Info("Peer wrote handshake: 1")
+	slog.Info("Peer wrote handshake: 1")
 
 	if err != nil {
 		death()
 		return
 	}
 	err = handshakeRead(conn, infoHash)
+	slog.Info("Peer wrote handshake: 12")
+
+	if err != nil {
+		death()
+		return
+	}
+
+	err = sendInterested(conn)
+	slog.Info("Peer wrote handshake: 3")
 
 	if err != nil {
 		death()
 		return
 	}
 	// slog.Info("Peer read handshake: 1")
+	slog.Info("Peer wrote handshake: 4")
 
-	ps := peerStatus{true, false}
+	ps := peerStatus{true, true}
 	{
 		msg := message.PeerMessage{}
 		msg.Id = IdReady
@@ -252,12 +269,12 @@ func StartPeerWorker(ctx context.Context, ch message.PeerChannels, a *PieceArray
 	slog.Info("Peer worker: survived to loop")
 
 	for {
-		timer := time.NewTimer(time.Minute * 2)
+		timer := time.NewTimer(time.Second * 10)
 		select {
 		case task := <-ch.ToDownload:
 			slog.Info("Peer worker: got a task")
 
-			err = download(conn, task, ch, a, peer, ps)
+			err = download(conn, task, ch, a, peer, &ps)
 			if err != nil {
 				death()
 				timer.Stop()
@@ -265,12 +282,19 @@ func StartPeerWorker(ctx context.Context, ch message.PeerChannels, a *PieceArray
 			}
 		case _ = <-timer.C:
 			timer.Stop()
-			keepAlive := make([]byte, 4)
-			_, err = conn.Write(keepAlive)
+			msg, err := readMessage(conn, peer)
 			if err != nil {
 				death()
+				timer.Stop()
 				return
 			}
+			slog.Info(fmt.Sprintf("\v", msg.Id))
+			// keepAlive := make([]byte, 4)
+			// _, err = conn.Write(keepAlive)
+			// if err != nil {
+			// 	death()
+			// 	return
+			// }
 		case <-ctx.Done():
 			timer.Stop()
 			return

@@ -126,10 +126,7 @@ func StartSupervisor(ctx context.Context, torrentFile TorrentFile, port int) {
 	var peerQueue *util.List[[6]byte]
 
 	availablePeers := 10
-	msgTest := message.PeerMessage{}
-	msgTest.Id = IdReady
 
-	peerCh.PeerMessageChannel <- msgTest
 	select {
 	case msg := <-ch.FromPeerWorker:
 		slog.Info("Supervisor: received new message")
@@ -199,38 +196,36 @@ func StartSupervisor(ctx context.Context, torrentFile TorrentFile, port int) {
 			}
 		}
 
-	// case p := <-ch.GetPeers:
-	// 	slog.Info("Supervisor: received peers")
-	// 	for _, i := range p {
-	// 		if peerState[i] == PeerNotFound {
-	// 			if availablePeers > 0 {
-	// 				newCh := make(chan message.DownloadRange)
-	// 				newPeerCh := peerCh
-	// 				newPeerCh.ToDownload = newCh
-	// 				ch.ToPeerWorkerToDownload[i] = newCh
-	// 				availablePeers--
-	// 				wgPeers.Go(func() {
-	// 					StartPeerWorker(ctx, newPeerCh, &pieceArray, i, torrentFile.InfoHash, trackerSession.PeerId)
-	// 				})
-	// 				peerState[i] = PeerChoking
-	// 			} else {
+	case p := <-ch.GetPeers:
+		slog.Info("Supervisor: received peers")
+		for _, i := range p {
+			if peerState[i] == PeerNotFound {
+				if availablePeers > 0 {
+					newCh := make(chan message.DownloadRange)
+					newPeerCh := peerCh
+					newPeerCh.ToDownload = newCh
+					ch.ToPeerWorkerToDownload[i] = newCh
+					availablePeers--
+					wgPeers.Go(func() {
+						StartPeerWorker(ctx, newPeerCh, &pieceArray, i, torrentFile.InfoHash, trackerSession.PeerId)
+					})
+					peerState[i] = PeerChoking
+				} else {
 
-	// 				if peerQueue == nil {
-	// 					peerQueue = &util.List[[6]byte]{Prev: nil, Next: nil, Value: i}
-	// 					continue
-	// 				}
+					if peerQueue == nil {
+						peerQueue = &util.List[[6]byte]{Prev: nil, Next: nil, Value: i}
+						continue
+					}
 
-	// 				node := peerQueue
-	// 				for node.Next != nil {
-	// 					node = node.Next
-	// 				}
-	// 				tmp := &util.List[[6]byte]{Prev: node, Next: nil, Value: i}
-	// 				node.Next = tmp
-	// 			}
-	// 		}
-	// 	}
-
-	// 	slog.Info("Supervisor: received peers+")
+					node := peerQueue
+					for node.Next != nil {
+						node = node.Next
+					}
+					tmp := &util.List[[6]byte]{Prev: node, Next: nil, Value: i}
+					node.Next = tmp
+				}
+			}
+		}
 
 	case <-ctx.Done():
 		return
