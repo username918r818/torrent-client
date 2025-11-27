@@ -102,7 +102,7 @@ func New(data []byte) (TorrentFile, error) {
 	}
 
 	hBeg, hEnd, err := util.GetIndeces("info", data)
-	
+
 	if err != nil {
 		return t, err
 	}
