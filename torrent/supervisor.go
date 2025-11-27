@@ -103,6 +103,10 @@ func queuePeer(peer [6]byte, state map[[6]byte]peerState, ch chan<- message.Peer
 func deadPeer(peer [6]byte, ch *message.SupervisorChannels, peerTasks map[[6]byte]message.DownloadRange, taskPeers map[int][6]byte) {
 	close(ch.ToPeerWorkerToDownload[peer])
 	delete(ch.ToPeerWorkerToDownload, peer)
+	resetTasks(peer, peerTasks, taskPeers)
+}
+
+func resetTasks(peer [6]byte, peerTasks map[[6]byte]message.DownloadRange, taskPeers map[int][6]byte) {
 	task, ok := peerTasks[peer]
 	if !ok {
 		return
@@ -220,25 +224,18 @@ func StartSupervisor(ctx context.Context, torrentFile TorrentFile, port int) {
 
 			case IdChoke:
 				peerState[msg.PeerId] = PeerChoking
+				resetTasks(msg.PeerId, peerTasks, tasksPeers)
 
 			case IdUnchoke:
 				slog.Info("Supervisor: unchoke")
 				peerState[msg.PeerId] = PeerWaiting
 				if peerState[msg.PeerId] == PeerWaiting {
-					slog.Info("Supervisor: searching for task123")
-
 					task, err := findTask(&pieceArray, peerBitFields[msg.PeerId], int(pieceArray.pieceLength), tasksPeers, peerTasks, msg.PeerId)
-					// slog.Info("Supervisor: ended search for task")
-
 					if err == nil {
-						// slog.Info("Supervisor: sent task")
 						peerState[msg.PeerId] = PeerDownloading
 						ch.ToPeerWorkerToDownload[msg.PeerId] <- task
-
 					}
 				}
-
-				// slog.Info("Supervisor: searched for task")
 
 			case IdReady:
 				// slog.Info("Supervisor: isReady")
