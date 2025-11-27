@@ -7,7 +7,7 @@ import (
 	"github.com/username918r818/torrent-client/message"
 )
 
-func StartPieceWorker(ctx context.Context, ch message.FileChannels) {
+func StartFileWorker(ctx context.Context, ch message.FileChannels) {
 	for {
 		select {
 		case msg := <-ch.ToSaveChannel: // TODO fix offset
@@ -20,7 +20,7 @@ func StartPieceWorker(ctx context.Context, ch message.FileChannels) {
 
 			for index < msg.Length {
 				pieceIndex++
-				copy(data[index:], msg.Pieces[0])
+				copy(data[index:], msg.Pieces[pieceIndex])
 				index += msg.PieceLength
 			}
 
