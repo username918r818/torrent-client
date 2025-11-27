@@ -22,7 +22,7 @@ func StartSupervisor(ctx context.Context, torrentFile TorrentFile, port int) {
 	wgTracker.Go(func() { StartWorkerTracker(ctx, trackerSession, traCh) })
 
 	for range 2 {
-		wgFiles.Go(func() { file.StartPieceWorker(ctx, fileCh) })
+		wgFiles.Go(func() { file.StartFileWorker(ctx, fileCh) })
 	}
 
 	var totalBytes int64
