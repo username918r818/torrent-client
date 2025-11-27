@@ -179,6 +179,8 @@ func download(conn net.Conn, task message.DownloadRange, ch message.PeerChannels
 	// slog.Info("Peer: downloading")
 	curIndex := task.Offset
 
+	requestCounter := 0
+
 	if !ps.interested {
 		err := sendInterested(conn)
 		ps.interested = true
@@ -187,8 +189,8 @@ func download(conn net.Conn, task message.DownloadRange, ch message.PeerChannels
 		}
 	}
 
-	for curIndex < task.Length+task.Offset {
-		for !ps.choked && curIndex < task.Length+task.Offset {
+	for curIndex < task.Length+task.Offset || counter > 0 {
+		for !ps.choked && curIndex < task.Length+task.Offset && counter < 5 {
 			index := curIndex / a.pieceLength
 			begin := curIndex % a.pieceLength
 			length := int64(BlockSize)
@@ -202,6 +204,7 @@ func download(conn net.Conn, task message.DownloadRange, ch message.PeerChannels
 			if err != nil {
 				return err
 			}
+			requestCounter++
 			curIndex += length
 		}
 		exitLoop := false
@@ -214,7 +217,10 @@ func download(conn net.Conn, task message.DownloadRange, ch message.PeerChannels
 					return nil
 				case msgId == IdUnchoke:
 					ps.choked = false
+				case msgId == IdPiece:
+					requestCounter--
 				}
+
 			default:
 				exitLoop = true
 			}
