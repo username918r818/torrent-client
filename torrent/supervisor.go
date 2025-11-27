@@ -161,7 +161,6 @@ func StartSupervisor(ctx context.Context, torrentFile TorrentFile, port int) {
 	pieceCh.CallBack = pieceFile
 
 	pieceArray := InitPieceArray(totalBytes, torrentFile.PieceLength)
-	pieceCh.FileWorkerIsSaved = make(<-chan message.IsRangeSaved)
 
 	for range 20 {
 		wgPiece.Go(func() { StartPieceWorker(ctx, &pieceArray, &torrentFile, fileMap, pieceCh) })
