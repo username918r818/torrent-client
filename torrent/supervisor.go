@@ -46,6 +46,7 @@ func getPiece(piece int, bitfield []byte) bool {
 }
 
 func findTask(pieceArray *PieceArray, bitfield []byte, length int, tasksPeers map[int][6]byte, peer [6]byte) (message.DownloadRange, error) {
+	slog.Info("Entered find task")
 	var msg message.DownloadRange
 	msg.PieceLength = pieceArray.pieceLength
 	for i, v := range pieceArray.pieces {
@@ -59,21 +60,40 @@ func findTask(pieceArray *PieceArray, bitfield []byte, length int, tasksPeers ma
 				msg.Length += msg.PieceLength
 				if msg.Length >= int64(length) {
 					tasksPeers[i] = peer
+					slog.Info("Leaving find task with msg")
 					return msg, nil
 				}
 
 			}
 		} else {
 			if msg.Length > 0 {
+				slog.Info("Leaving find task with msg")
 				return msg, nil
 			}
 		}
 	}
 	if msg.Length > 0 {
+		slog.Info("Leaving find task with msg")
 		return msg, nil
 	}
+	slog.Info("Leaving find task with error")
 	return msg, errors.New("Supervisor: task not found")
+}
 
+func newPeer(ctx context.Context, peerCh message.PeerChannels, peer [6]byte, pieceArray *PieceArray, infoHash, peerId [20]byte, wgPeers *sync.WaitGroup, ch *message.SupervisorChannels, peerState *map[[6]byte]peerState) {
+	newCh := make(chan message.DownloadRange, 1)
+	newPeerCh := peerCh
+	newPeerCh.ToDownload = newCh
+	ch.ToPeerWorkerToDownload[peer] = newCh
+	wgPeers.Go(func() {
+		StartPeerWorker(ctx, newPeerCh, pieceArray, peer, infoHash, peerId)
+	})
+	(*peerState)[peer] = PeerChoking
+}
+
+func deadPeer(peer [6]byte, ch *message.SupervisorChannels) {
+	close(ch.ToPeerWorkerToDownload[peer])
+	delete(ch.ToPeerWorkerToDownload, peer)
 }
 
 func StartSupervisor(ctx context.Context, torrentFile TorrentFile, port int) {
@@ -125,111 +145,123 @@ func StartSupervisor(ctx context.Context, torrentFile TorrentFile, port int) {
 	peerBitFields := make(map[[6]byte][]byte)
 	var peerQueue *util.List[[6]byte]
 
-	availablePeers := 10
+	availablePeers := 3
+	for {
+		select {
+		case msg := <-ch.FromPeerWorker:
+			slog.Info("Supervisor: received new message")
+			switch msg.Id {
+			case IdDead:
+				slog.Info("Supervisor: new dead")
+				// TODO clean up peerTasks TODO
+				peerState[msg.PeerId] = PeerDead
 
-	select {
-	case msg := <-ch.FromPeerWorker:
-		slog.Info("Supervisor: received new message")
-		switch msg.Id {
-		case IdDead:
-			peerState[msg.PeerId] = PeerDead
-			availablePeers++
-			if peerQueue != nil {
-				newCh := make(chan message.DownloadRange)
-				newPeerCh := peerCh
-				newPeerCh.ToDownload = newCh
-				ch.ToPeerWorkerToDownload[peerQueue.Value] = newCh
-				wgPeers.Go(func() {
-					StartPeerWorker(ctx, newPeerCh, &pieceArray, peerQueue.Value, torrentFile.InfoHash, trackerSession.PeerId)
-				})
-				peerState[peerQueue.Value] = PeerChoking
-				availablePeers--
-				peerQueue = peerQueue.Next
+				deadPeer(msg.PeerId, &ch)
+				availablePeers++
 				if peerQueue != nil {
-					peerQueue.Prev = nil
-				}
-			}
 
-		case IdBitfield:
-			if _, ok := peerBitFields[msg.PeerId]; !ok {
-				peerBitFields[msg.PeerId] = createBitField(len(pieceArray.pieces))
-			}
-			copy(peerBitFields[msg.PeerId], msg.Payload)
-			if peerState[msg.PeerId] == PeerWaiting {
-				task, err := findTask(&pieceArray, peerBitFields[msg.PeerId], int(pieceArray.pieceLength)*3, tasksPeers, msg.PeerId)
-				if err == nil {
-					peerState[msg.PeerId] = PeerDownloading
-					ch.ToPeerWorkerToDownload[msg.PeerId] <- task
-					peerTasks[msg.PeerId] = task
-				}
-			}
-
-		case IdHave:
-			if _, ok := peerBitFields[msg.PeerId]; !ok {
-				peerBitFields[msg.PeerId] = createBitField(len(pieceArray.pieces))
-			}
-			setPiece(int(msg.Payload[0]), peerBitFields[msg.PeerId])
-
-		case IdChoke:
-			peerState[msg.PeerId] = PeerChoking
-
-		case IdUnchoke:
-			peerState[msg.PeerId] = PeerWaiting
-			if peerState[msg.PeerId] == PeerWaiting {
-				task, err := findTask(&pieceArray, peerBitFields[msg.PeerId], int(pieceArray.pieceLength)*3, tasksPeers, msg.PeerId)
-				if err == nil {
-					peerState[msg.PeerId] = PeerDownloading
-					ch.ToPeerWorkerToDownload[msg.PeerId] <- task
-					peerTasks[msg.PeerId] = task
-				}
-			}
-
-		case IdReady:
-			peerState[msg.PeerId] = PeerWaiting
-			if peerState[msg.PeerId] == PeerWaiting {
-				task, err := findTask(&pieceArray, peerBitFields[msg.PeerId], int(pieceArray.pieceLength)*3, tasksPeers, msg.PeerId)
-				if err == nil {
-					peerState[msg.PeerId] = PeerDownloading
-					ch.ToPeerWorkerToDownload[msg.PeerId] <- task
-					peerTasks[msg.PeerId] = task
-				}
-			}
-		}
-
-	case p := <-ch.GetPeers:
-		slog.Info("Supervisor: received peers")
-		for _, i := range p {
-			if peerState[i] == PeerNotFound {
-				if availablePeers > 0 {
-					newCh := make(chan message.DownloadRange)
-					newPeerCh := peerCh
-					newPeerCh.ToDownload = newCh
-					ch.ToPeerWorkerToDownload[i] = newCh
 					availablePeers--
-					wgPeers.Go(func() {
-						StartPeerWorker(ctx, newPeerCh, &pieceArray, i, torrentFile.InfoHash, trackerSession.PeerId)
-					})
-					peerState[i] = PeerChoking
-				} else {
-
-					if peerQueue == nil {
-						peerQueue = &util.List[[6]byte]{Prev: nil, Next: nil, Value: i}
-						continue
+					newPeer(ctx, peerCh, peerQueue.Value, &pieceArray, torrentFile.InfoHash, trackerSession.PeerId, &wgPeers, &ch, &peerState)
+					peerQueue = peerQueue.Next
+					if peerQueue != nil {
+						peerQueue.Prev = nil
 					}
+				}
 
-					node := peerQueue
-					for node.Next != nil {
-						node = node.Next
+			case IdBitfield:
+				slog.Info("Supervisor: newBitField")
+				if _, ok := peerBitFields[msg.PeerId]; !ok {
+					peerBitFields[msg.PeerId] = createBitField(len(pieceArray.pieces))
+				}
+				copy(peerBitFields[msg.PeerId], msg.Payload)
+				if peerState[msg.PeerId] == PeerWaiting {
+					task, err := findTask(&pieceArray, peerBitFields[msg.PeerId], int(pieceArray.pieceLength)*3, tasksPeers, msg.PeerId)
+					if err == nil {
+						peerState[msg.PeerId] = PeerDownloading
+						ch.ToPeerWorkerToDownload[msg.PeerId] <- task
+						peerTasks[msg.PeerId] = task
 					}
-					tmp := &util.List[[6]byte]{Prev: node, Next: nil, Value: i}
-					node.Next = tmp
+				}
+
+			case IdHave:
+
+				slog.Info("Supervisor: new have")
+				if _, ok := peerBitFields[msg.PeerId]; !ok {
+					peerBitFields[msg.PeerId] = createBitField(len(pieceArray.pieces))
+				}
+				setPiece(int(msg.Payload[0]), peerBitFields[msg.PeerId])
+
+				if peerState[msg.PeerId] == PeerWaiting {
+					task, err := findTask(&pieceArray, peerBitFields[msg.PeerId], int(pieceArray.pieceLength)*3, tasksPeers, msg.PeerId)
+					if err == nil {
+						peerState[msg.PeerId] = PeerDownloading
+						ch.ToPeerWorkerToDownload[msg.PeerId] <- task
+						peerTasks[msg.PeerId] = task
+					}
+				}
+
+			case IdChoke:
+				peerState[msg.PeerId] = PeerChoking
+
+			case IdUnchoke:
+				slog.Info("Supervisor: unchoke")
+				peerState[msg.PeerId] = PeerWaiting
+				if peerState[msg.PeerId] == PeerWaiting {
+					slog.Info("Supervisor: searching for task123")
+
+					task, err := findTask(&pieceArray, peerBitFields[msg.PeerId], int(pieceArray.pieceLength)*3, tasksPeers, msg.PeerId)
+					slog.Info("Supervisor: ended search for task")
+
+					if err == nil {
+						slog.Info("Supervisor: sent task")
+						peerState[msg.PeerId] = PeerDownloading
+						ch.ToPeerWorkerToDownload[msg.PeerId] <- task
+						peerTasks[msg.PeerId] = task
+
+					}
+				}
+
+				slog.Info("Supervisor: searched for task")
+
+			case IdReady:
+
+				slog.Info("Supervisor: isReady")
+				peerState[msg.PeerId] = PeerWaiting
+				if peerState[msg.PeerId] == PeerWaiting {
+					task, err := findTask(&pieceArray, peerBitFields[msg.PeerId], int(pieceArray.pieceLength)*3, tasksPeers, msg.PeerId)
+					if err == nil {
+						peerState[msg.PeerId] = PeerDownloading
+						ch.ToPeerWorkerToDownload[msg.PeerId] <- task
+						peerTasks[msg.PeerId] = task
+					}
 				}
 			}
+
+		case p := <-ch.GetPeers:
+			slog.Info("Supervisor: received peers")
+			for _, i := range p {
+				if peerState[i] == PeerNotFound {
+					if availablePeers > 0 {
+						availablePeers--
+						newPeer(ctx, peerCh, i, &pieceArray, torrentFile.InfoHash, trackerSession.PeerId, &wgPeers, &ch, &peerState)
+					} else {
+						if peerQueue == nil {
+							peerQueue = &util.List[[6]byte]{Prev: nil, Next: nil, Value: i}
+							continue
+						}
+						node := peerQueue
+						for node.Next != nil {
+							node = node.Next
+						}
+						tmp := &util.List[[6]byte]{Prev: node, Next: nil, Value: i}
+						node.Next = tmp
+					}
+				}
+			}
+
+		case <-ctx.Done():
+			return
 		}
-
-	case <-ctx.Done():
-		return
+		slog.Info("Supervisor: loop ended")
 	}
-	slog.Info("Supervisor: loop ended")
-
 }
