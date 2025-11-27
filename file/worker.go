@@ -15,6 +15,7 @@ func StartFileWorker(ctx context.Context, ch message.FileChannels) {
 		case msg := <-ch.ToSaveChannel:
 			if msg.Length == -1 {
 				time.Sleep(time.Second)
+				break
 			}
 			data := make([]byte, msg.Length)
 			var index int64
