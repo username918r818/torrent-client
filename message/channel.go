@@ -22,6 +22,7 @@ type PieceChannels struct {
 	PeerHasDownloaded <-chan Block
 	FileWorkerReady   <-chan Ready
 	FileWorkerIsSaved <-chan IsRangeSaved // need initialize with new torrent
+	CallBack          chan<- IsRangeSaved // need initialize with new torrent
 	FileWorkerToSave  chan<- SaveRange
 }
 

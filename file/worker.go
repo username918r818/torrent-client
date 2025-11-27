@@ -10,7 +10,7 @@ import (
 func StartPieceWorker(ctx context.Context, ch message.FileChannels) {
 	for {
 		select {
-		case msg := <-ch.ToSaveChannel:
+		case msg := <-ch.ToSaveChannel: // TODO fix offset
 			data := make([]byte, msg.Length)
 			var index int64
 			pieceIndex := msg.Offset / msg.PieceLength

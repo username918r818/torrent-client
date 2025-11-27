@@ -26,7 +26,7 @@ type SaveRange struct {
 	FileOffset  int64
 	Length      int64
 	File        *os.File
-	Callback    chan IsRangeSaved
+	Callback    chan<- IsRangeSaved
 }
 
 type DownloadRange struct {

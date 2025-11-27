@@ -40,6 +40,7 @@ func StartSupervisor(ctx context.Context, torrentFile TorrentFile, port int) {
 
 	pieceFile := make(chan message.IsRangeSaved)
 	pieceCh.FileWorkerIsSaved = pieceFile
+	pieceCh.CallBack = pieceFile
 
 	pieceArray := InitPieceArray(totalBytes, torrentFile.PieceLength)
 	pieceCh.FileWorkerIsSaved = make(<-chan message.IsRangeSaved)
