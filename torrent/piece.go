@@ -55,6 +55,8 @@ func InitPieceArray(totalBytes, pieceLength int64) (a PieceArray) {
 	a.lastPieceLength = totalBytes % pieceLength
 	if a.lastPieceLength > 0 {
 		arrLength++
+	} else {
+		a.lastPieceLength = pieceLength
 	}
 	a.pieces = make([]Piece, arrLength)
 	a.locks = make([]sync.Mutex, arrLength)

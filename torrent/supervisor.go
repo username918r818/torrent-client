@@ -52,13 +52,17 @@ func findTask(pieceArray *PieceArray, bitfield []byte, length int, tasksPeers ma
 	msg.PieceLength = pieceArray.pieceLength
 	for i, v := range pieceArray.pieces {
 		if _, ok := tasksPeers[i]; !ok && (v.state == InProgress || v.state == NotStarted) && getPiece(i, bitfield) {
+			curLength := msg.PieceLength
+			if i == len(tasksPeers) - 1 {
+				curLength = pieceArray.lastPieceLength
+			}
 			switch msg.Length {
 			case 0:
 				msg.Offset = int64(i) * msg.PieceLength
-				msg.Length = msg.PieceLength
+				msg.Length = curLength
 				tasksPeers[i] = peer
 			default:
-				msg.Length += msg.PieceLength
+				msg.Length += curLength
 				if msg.Length >= int64(length) {
 					tasksPeers[i] = peer
 					peerTasks[peer] = msg
