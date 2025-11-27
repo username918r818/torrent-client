@@ -91,8 +91,6 @@ func infiniteReadingMessage(conn net.Conn, peerId [6]byte, toWriter chan<- byte,
 			tmpB, err := UpdatePiece(index, a)
 			if err != nil {
 				slog.Error("Peer: " + err.Error())
-				dm := message.PeerMessage{PeerId: peerId, Id: IdDead}
-				toSup <- dm
 				toWriter <- IdDead
 				return
 			}
@@ -220,6 +218,8 @@ func download(conn net.Conn, task message.DownloadRange, ch message.PeerChannels
 					ps.choked = false
 				case msgId == IdPiece:
 					requestCounter--
+				case msgId == IdDead:
+					return errors.New("peer: received dead signal from reader")
 				}
 
 			default:
@@ -329,12 +329,17 @@ func StartPeerWorker(ctx context.Context, ch message.PeerChannels, a *PieceArray
 				return
 			}
 		case byteId := <-fromReader:
-			if byteId == IdChoke {
+			switch byteId {
+			case IdChoke:
 				ps.choked = true
-			}
-			if byteId == IdUnchoke {
+
+			case IdUnchoke:
 				ps.choked = false
+
+			case IdDead:
+				death(errors.New("peer: reader died"))
 			}
+
 		case <-ctx.Done():
 			timer.Stop()
 			return
