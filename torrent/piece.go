@@ -103,8 +103,10 @@ func StartPieceWorker(ctx context.Context, pieces *PieceArray, tf *TorrentFile, 
 			ns, sai := -newBlock.Length, newBlock.Length
 			validated := false
 			if checkRange {
+				pieces.locks[pieceIndex].Lock()
 				if Validate(pieces.pieces[pieceIndex].data, tf.Pieces[pieceIndex]) {
 					validated = true
+					pieces.pieces[pieceIndex].state = Validated
 					pieces.listTLock.Lock()
 					pieces.toSave = util.InsertRange(pieces.toSave, pieceLowerBound, pieceUpperBound)
 					pieces.listTLock.Unlock()
@@ -112,6 +114,7 @@ func StartPieceWorker(ctx context.Context, pieces *PieceArray, tf *TorrentFile, 
 					ns += pieceUpperBound - pieceLowerBound
 				}
 				sai += pieceLowerBound - pieceUpperBound
+				pieces.locks[pieceIndex].Unlock()
 			}
 
 			pieces.Lock()
@@ -124,11 +127,6 @@ func StartPieceWorker(ctx context.Context, pieces *PieceArray, tf *TorrentFile, 
 			pieces.Unlock()
 
 		case ready := (<-ch.FileWorkerReady):
-			defer func() {
-				pieces.Lock()
-				ch.PostStatsChannel <- pieces.stats
-				pieces.Unlock()
-			}()
 			slog.Info("Piece worker: received new ready")
 			if !ready {
 				break
@@ -205,6 +203,7 @@ func StartPieceWorker(ctx context.Context, pieces *PieceArray, tf *TorrentFile, 
 			if !isSaved.IsSaved {
 				pieces.Lock()
 				pieces.stats[Saving] -= isSaved.Length
+				ch.PostStatsChannel <- pieces.stats
 				pieces.Unlock()
 				pieces.listTLock.Lock()
 				pieces.toSave = util.InsertRange(pieces.toSave, isSaved.Offset, isSaved.Offset+isSaved.Length)
@@ -215,6 +214,7 @@ func StartPieceWorker(ctx context.Context, pieces *PieceArray, tf *TorrentFile, 
 			pieces.Lock()
 			pieces.stats[Saving] -= isSaved.Length
 			pieces.stats[Saved] += isSaved.Length
+			ch.PostStatsChannel <- pieces.stats
 			pieces.Unlock()
 
 			pieces.listSLock.Lock()
