@@ -288,7 +288,7 @@ func StartPeerWorker(ctx context.Context, ch message.PeerChannels, a *PieceArray
 				timer.Stop()
 				return
 			}
-			slog.Info(fmt.Sprintf("\v", msg.Id))
+			slog.Info(fmt.Sprintf("%v", msg.Id))
 			// keepAlive := make([]byte, 4)
 			// _, err = conn.Write(keepAlive)
 			// if err != nil {
