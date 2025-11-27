@@ -122,7 +122,12 @@ func StartPieceWorker(ctx context.Context, pieces *PieceArray, tf *TorrentFile, 
 			pieces.Unlock()
 
 		case ready := (<-ch.FileWorkerReady):
-			// slog.Info("Piece worker: received new ready")
+			defer func() {
+				pieces.Lock()
+				ch.PostStatsChannel <- pieces.stats
+				pieces.Unlock()
+			}()
+			slog.Info("Piece worker: received new ready")
 			if !ready {
 				break
 			}
@@ -184,6 +189,10 @@ func StartPieceWorker(ctx context.Context, pieces *PieceArray, tf *TorrentFile, 
 			msg.File = f
 			msg.Callback = ch.CallBack
 
+			pieces.Lock()
+			pieces.stats[Saving] += length
+			pieces.Unlock()
+
 			ch.FileWorkerToSave <- msg
 
 		case isSaved, ok := (<-ch.FileWorkerIsSaved):
@@ -192,11 +201,19 @@ func StartPieceWorker(ctx context.Context, pieces *PieceArray, tf *TorrentFile, 
 				break
 			}
 			if !isSaved.IsSaved {
+				pieces.Lock()
+				pieces.stats[Saving] -= isSaved.Length
+				pieces.Unlock()
 				pieces.listTLock.Lock()
 				pieces.toSave = util.InsertRange(pieces.toSave, isSaved.Offset, isSaved.Offset+isSaved.Length)
 				pieces.listTLock.Unlock()
 				break
 			}
+
+			pieces.Lock()
+			pieces.stats[Saving] -= isSaved.Length
+			pieces.stats[Saved] += isSaved.Length
+			pieces.Unlock()
 
 			pieces.listSLock.Lock()
 			pieces.Saved = util.InsertRange(pieces.Saved, isSaved.Offset, isSaved.Offset+isSaved.Length)
