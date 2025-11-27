@@ -51,10 +51,11 @@ func findTask(pieceArray *PieceArray, bitfield []byte, length int, tasksPeers ma
 	var msg message.DownloadRange
 	msg.PieceLength = pieceArray.pieceLength
 	for i, v := range pieceArray.pieces {
-		if _, ok := tasksPeers[i]; !ok && (v.state == InProgress || v.state == NotStarted) && getPiece(i, bitfield) {
+		if _, ok := tasksPeers[i]; !ok && (v.state == NotStarted) && getPiece(i, bitfield) {
 			curLength := msg.PieceLength
-			if i == len(tasksPeers) - 1 {
+			if i == len(pieceArray.pieces)-1 {
 				curLength = pieceArray.lastPieceLength
+				slog.Info("supervisor: gaved last piece task")
 			}
 			switch msg.Length {
 			case 0:
@@ -182,7 +183,7 @@ func StartSupervisor(ctx context.Context, torrentFile TorrentFile, port int) {
 	for {
 		select {
 		case msg := <-ch.FromPeerWorker:
-			slog.Info(fmt.Sprintf("Supervisor: received new message with type %d", msg.Id))
+			// slog.Info(fmt.Sprintf("Supervisor: received new message with type %d", msg.Id))
 			switch msg.Id {
 			case IdDead:
 				slog.Info("Supervisor: new dead")

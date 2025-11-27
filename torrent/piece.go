@@ -70,7 +70,7 @@ func UpdatePiece(pieceIndex int, a *PieceArray) ([]byte, error) {
 	if a.pieces[pieceIndex].state != NotStarted && a.pieces[pieceIndex].state != InProgress {
 		return nil, errors.New("Piece: can't update already downloaded piece")
 	}
-	if a.pieces[pieceIndex].state == NotStarted {
+	if a.pieces[pieceIndex].data == nil {
 		a.pieces[pieceIndex].state = InProgress
 		newLength := a.pieceLength
 		if pieceIndex == len(a.pieces)-1 {
