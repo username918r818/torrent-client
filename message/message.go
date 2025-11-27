@@ -39,7 +39,7 @@ type DownloadRange struct {
 
 type PeerMessage struct {
 	PeerId  [6]byte
-	Length  int64
+	Length  uint32
 	Id      byte
 	Payload []byte
 }

@@ -36,9 +36,8 @@ type TrackerSession struct {
 
 func StartWorkerTracker(ctx context.Context, ts *TrackerSession, ch message.TrackerChannels) {
 	ts.Event = EventStarted
-	peerId := "-UT0001-" + randomDigits(12)
+
 	for {
-		copy(ts.PeerId[:], peerId)
 		timer := time.NewTimer(time.Duration(ts.Interval) * time.Second)
 		select {
 		case <-timer.C:

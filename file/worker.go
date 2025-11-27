@@ -12,7 +12,7 @@ func StartFileWorker(ctx context.Context, ch message.FileChannels) {
 	ch.ReadyChannel <- true
 	for {
 		select {
-		case msg := <-ch.ToSaveChannel: // TODO fix offset
+		case msg := <-ch.ToSaveChannel:
 			if msg.Length == -1 {
 				time.Sleep(time.Second)
 			}
