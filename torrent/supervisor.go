@@ -101,8 +101,10 @@ func queuePeer(peer [6]byte, state map[[6]byte]peerState, ch chan<- message.Peer
 }
 
 func deadPeer(peer [6]byte, ch *message.SupervisorChannels, peerTasks map[[6]byte]message.DownloadRange, taskPeers map[int][6]byte) {
-	close(ch.ToPeerWorkerToDownload[peer])
-	delete(ch.ToPeerWorkerToDownload, peer)
+	if newCh, ok := ch.ToPeerWorkerToDownload[peer]; ok {
+		close(newCh)
+		delete(ch.ToPeerWorkerToDownload, peer)
+	}
 	resetTasks(peer, peerTasks, taskPeers)
 }
 

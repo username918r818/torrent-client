@@ -76,8 +76,6 @@ func infiniteReadingMessage(conn net.Conn, peerId [6]byte, toWriter chan<- byte,
 		msg, err := readMessage(conn, peerId)
 		if err != nil {
 			slog.Error("peer reader: " + err.Error())
-			dm := message.PeerMessage{PeerId: peerId, Id: IdDead}
-			toSup <- dm
 			toWriter <- IdDead
 			return
 		}
