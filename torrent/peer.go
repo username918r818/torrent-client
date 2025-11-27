@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"strconv"
@@ -48,19 +49,18 @@ func readMessage(conn net.Conn, peerId [6]byte) (message.PeerMessage, error) {
 	msg.PeerId = peerId
 	conn.SetReadDeadline(time.Now().Add(3 * time.Minute))
 	buf := make([]byte, 4)
-	_, err := conn.Read(buf[:])
-	if err != nil {
+	if _, err := io.ReadFull(conn, buf); err != nil {
 		return msg, err
 	}
 	msg.Length = binary.BigEndian.Uint32(buf[:])
 	if msg.Length == 0 {
+		msg.Id = IdKeepAlive
 		return msg, nil
 	}
 
 	buf = make([]byte, msg.Length)
 	conn.SetReadDeadline(time.Now().Add(3 * time.Minute))
-	_, err = conn.Read(buf[:])
-	if err != nil {
+	if _, err := io.ReadFull(conn, buf); err != nil {
 		return msg, err
 	}
 
@@ -76,10 +76,8 @@ func infiniteReadingMessage(conn net.Conn, peerId [6]byte, toWriter chan<- byte,
 		msg, err := readMessage(conn, peerId)
 		if err != nil {
 			slog.Error("peer reader: " + err.Error())
-			msg := message.PeerMessage{}
-			msg.PeerId = peerId
-			msg.Id = IdDead
-			toSup <- msg
+			dm := message.PeerMessage{PeerId: peerId, Id: IdDead}
+			toSup <- dm
 			toWriter <- IdDead
 			return
 		}
@@ -93,7 +91,10 @@ func infiniteReadingMessage(conn net.Conn, peerId [6]byte, toWriter chan<- byte,
 			tmpB, err := UpdatePiece(index, a)
 			if err != nil {
 				slog.Error("Peer: " + err.Error())
-				break
+				dm := message.PeerMessage{PeerId: peerId, Id: IdDead}
+				toSup <- dm
+				toWriter <- IdDead
+				return
 			}
 			copy(tmpB[begin:], block)
 			var tmpOffset, length int64 = int64(index)*int64(a.pieceLength) + int64(begin), int64(len(block))
