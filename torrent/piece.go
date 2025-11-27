@@ -60,9 +60,11 @@ type PieceArray struct {
 	lastPieceLength int64
 	locks           []sync.Mutex
 	listDLock       sync.Mutex                   // locks for downloaded
-	downloaded      *util.List[util.Pair[int64]] // used to know ranges of downloaded but not saved yet data
-	listSLock       sync.Mutex                   // locks for toSaved
+	downloaded      *util.List[util.Pair[int64]] // used to know ranges of downloaded but may be saved yet data
+	listTLock       sync.Mutex                   // locks for toSave
 	toSave          *util.List[util.Pair[int64]] // used to know ranges of downloaded but not saved yet data
+	listSLock       sync.Mutex                   // locks for Saved
+	Saved           *util.List[util.Pair[int64]] // used to know ranges of saved data
 }
 
 func Validate(data []byte, hash [20]byte) bool {
@@ -122,9 +124,9 @@ func StartPieceWorker(ctx context.Context, pieces *PieceArray, tf *TorrentFile, 
 			if checkRange {
 				if Validate(pieces.pieces[pieceIndex].GetData(), tf.Pieces[pieceIndex]) {
 					validated = true
-					pieces.listSLock.Lock()
+					pieces.listTLock.Lock()
 					pieces.toSave = util.InsertRange(pieces.toSave, pieceLowerBound, pieceUpperBound)
-					pieces.listSLock.Unlock()
+					pieces.listTLock.Unlock()
 				} else {
 					ns += pieceUpperBound - pieceLowerBound
 				}
@@ -144,12 +146,12 @@ func StartPieceWorker(ctx context.Context, pieces *PieceArray, tf *TorrentFile, 
 			if !ready {
 				break
 			}
-			pieces.listSLock.Lock()
+			pieces.listTLock.Lock()
 			firstRange := pieces.toSave
 			if pieces.toSave != nil {
 				pieces.toSave = pieces.toSave.Next
 			}
-			pieces.listSLock.Unlock()
+			pieces.listTLock.Unlock()
 			totalOffset := firstRange.Value.First
 			length := firstRange.Value.Second - firstRange.Value.First
 			var f *os.File
@@ -167,9 +169,9 @@ func StartPieceWorker(ctx context.Context, pieces *PieceArray, tf *TorrentFile, 
 			}
 			if fLength < length {
 				length = fLength
-				pieces.listSLock.Lock()
+				pieces.listTLock.Lock()
 				pieces.toSave = util.InsertRange(pieces.toSave, firstRange.Value.First+length, firstRange.Value.Second)
-				pieces.listSLock.Unlock()
+				pieces.listTLock.Unlock()
 			}
 
 			firstPiece := totalOffset / pieces.pieceLength
@@ -192,8 +194,37 @@ func StartPieceWorker(ctx context.Context, pieces *PieceArray, tf *TorrentFile, 
 
 			ch.FileWorkerToSave <- msg
 
-		case isSaved, ok := (<-ch.FileWorkerIsSaved): // TODO
-			_, _ = isSaved, ok
+		case isSaved, ok := (<-ch.FileWorkerIsSaved):
+			if !ok {
+				break
+			}
+			if !isSaved.IsSaved {
+				pieces.listTLock.Lock()
+				pieces.toSave = util.InsertRange(pieces.toSave, isSaved.Offset, isSaved.Offset+isSaved.Length)
+				pieces.listTLock.Unlock()
+				break
+			}
+
+			pieces.listSLock.Lock()
+			pieces.Saved = util.InsertRange(pieces.Saved, isSaved.Offset, isSaved.Offset+isSaved.Length)
+			pieces.listSLock.Unlock()
+
+			firstPiece := isSaved.Offset / pieces.pieceLength
+			lastPiece := (isSaved.Offset + isSaved.Length) / pieces.pieceLength
+
+			for i := firstPiece; i <= lastPiece; i++ {
+				if i == firstPiece || i == lastPiece {
+					lw, up := i*pieces.pieceLength, (i+1)*pieces.pieceLength
+					pieces.listSLock.Lock()
+					checkRange := util.Contains(pieces.downloaded, lw, up)
+					pieces.listSLock.Unlock()
+					if !checkRange {
+						continue
+					}
+				}
+				pieces.pieces[i].SetState(Saved)
+				pieces.pieces[i].SetData(nil)
+			}
 
 		case <-ctx.Done():
 			return
