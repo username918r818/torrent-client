@@ -2,6 +2,7 @@ package file
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"time"
 
@@ -13,8 +14,10 @@ func StartFileWorker(ctx context.Context, ch message.FileChannels) {
 	for {
 		select {
 		case msg := <-ch.ToSaveChannel:
+			slog.Info("File worker: received msg: " + fmt.Sprintf("%d", msg.Length))
 			if msg.Length == -1 {
 				time.Sleep(time.Second)
+				ch.ReadyChannel <- true
 				break
 			}
 			data := make([]byte, msg.Length)

@@ -2,7 +2,6 @@ package message
 
 import (
 	"os"
-	"sync"
 )
 
 type Block struct {
@@ -30,8 +29,6 @@ type SaveRange struct {
 }
 
 type DownloadRange struct {
-	Pieces      [][]byte
-	locks       []sync.Mutex
 	PieceLength int64
 	Offset      int64
 	Length      int64

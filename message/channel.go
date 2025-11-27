@@ -1,7 +1,7 @@
 package message
 
 type SupervisorChannels struct {
-	ToPeerWorkerToDownload map[[6]byte]chan<- DownloadRange
+	ToPeerWorkerToDownload map[[6]byte]chan<- DownloadRange // need initialize
 	FromPeerWorker         <-chan PeerMessage
 	GetPeers               <-chan Peers
 }

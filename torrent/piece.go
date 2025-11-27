@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha1"
 	"errors"
+	"log/slog"
 	"os"
 	"strings"
 	"sync"
@@ -84,6 +85,7 @@ func StartPieceWorker(ctx context.Context, pieces *PieceArray, tf *TorrentFile, 
 	for {
 		select {
 		case newBlock := <-ch.PeerHasDownloaded:
+			slog.Info("Piece worker: received new block")
 			pieceIndex := newBlock.Offset / pieces.pieceLength
 			pieceLowerBound := pieceIndex * pieces.pieceLength
 			pieceUpperBound := pieceLowerBound + pieces.pieceLength
@@ -120,6 +122,7 @@ func StartPieceWorker(ctx context.Context, pieces *PieceArray, tf *TorrentFile, 
 			pieces.Unlock()
 
 		case ready := (<-ch.FileWorkerReady):
+			slog.Info("Piece worker: received new ready")
 			if !ready {
 				break
 			}
@@ -178,6 +181,7 @@ func StartPieceWorker(ctx context.Context, pieces *PieceArray, tf *TorrentFile, 
 			ch.FileWorkerToSave <- msg
 
 		case isSaved, ok := (<-ch.FileWorkerIsSaved):
+			slog.Info("Piece worker: received new saved")
 			if !ok {
 				break
 			}

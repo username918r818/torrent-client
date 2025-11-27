@@ -24,7 +24,8 @@ const (
 	IdPiece
 	IdCancel
 	IdPort
-	IdKeepAlive byte = 254
+	IdKeepAlive byte = 253
+	IdReady     byte = 254
 	IdDead      byte = 255
 )
 
@@ -196,42 +197,66 @@ func download(conn net.Conn, task message.DownloadRange, ch message.PeerChannels
 		ch.PeerMessageChannel <- msg
 	}
 
+	msg := message.PeerMessage{}
+	msg.Id = IdReady
+	msg.PeerId = peer
+	ch.PeerMessageChannel <- msg
+
 	return nil
 }
 
 func StartPeerWorker(ctx context.Context, ch message.PeerChannels, a *PieceArray, peer [6]byte, infoHash [20]byte, peerId [20]byte) {
+	slog.Info("Peer worker: started")
 	ip := fmt.Sprintf("%d.%d.%d.%d", peer[0], peer[1], peer[2], peer[3])
 	port := int64(peer[4])<<8 | int64(peer[5])
-	addr := ip + strconv.FormatInt(port, 10)
+	addr := ip + ":" + strconv.FormatInt(port, 10)
 	conn, err := net.DialTimeout("tcp", addr, 10*time.Second)
 	death := func() {
+		slog.Info("Peer: " + err.Error())
 		msg := message.PeerMessage{}
 		msg.PeerId = peer
 		msg.Id = IdDead
 		ch.PeerMessageChannel <- msg
-		slog.Error("Peer: " + err.Error())
 	}
+	// slog.Info("Peer worker: 1")
+
 	if err != nil {
 		death()
 		return
 	}
+	// slog.Info("Peer worker: 2")
+
 	err = handshakeWrite(conn, BitTorrentPstr, infoHash, peerId)
+	// slog.Info("Peer wrote handshake: 1")
+
 	if err != nil {
 		death()
 		return
 	}
 	err = handshakeRead(conn, infoHash)
+
 	if err != nil {
 		death()
 		return
 	}
+	// slog.Info("Peer read handshake: 1")
 
 	ps := peerStatus{true, false}
+	{
+		msg := message.PeerMessage{}
+		msg.Id = IdReady
+		msg.PeerId = peer
+		ch.PeerMessageChannel <- msg
+	}
+
+	slog.Info("Peer worker: survived to loop")
 
 	for {
 		timer := time.NewTimer(time.Minute * 2)
 		select {
 		case task := <-ch.ToDownload:
+			slog.Info("Peer worker: got a task")
+
 			err = download(conn, task, ch, a, peer, ps)
 			if err != nil {
 				death()
