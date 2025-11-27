@@ -129,6 +129,12 @@ func StartPieceWorker(ctx context.Context, pieces *PieceArray, tf *TorrentFile, 
 				pieces.toSave = pieces.toSave.Next
 			}
 			pieces.listTLock.Unlock()
+			if firstRange == nil {
+				msg := message.SaveRange{}
+				msg.Length = -1
+				ch.FileWorkerToSave <- msg
+				break
+			}
 			totalOffset := firstRange.Value.First
 			length := firstRange.Value.Second - firstRange.Value.First
 			var f *os.File

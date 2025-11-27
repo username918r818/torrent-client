@@ -3,6 +3,7 @@ package file
 import (
 	"context"
 	"log/slog"
+	"time"
 
 	"github.com/username918r818/torrent-client/message"
 )
@@ -11,6 +12,9 @@ func StartFileWorker(ctx context.Context, ch message.FileChannels) {
 	for {
 		select {
 		case msg := <-ch.ToSaveChannel: // TODO fix offset
+			if msg.Length == -1 {
+				time.Sleep(time.Second)
+			}
 			data := make([]byte, msg.Length)
 			var index int64
 			pieceIndex := msg.Offset / msg.PieceLength
