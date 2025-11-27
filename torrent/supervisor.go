@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sync"
+	"time"
 
 	"github.com/username918r818/torrent-client/file"
 	"github.com/username918r818/torrent-client/message"
@@ -91,6 +92,14 @@ func newPeer(ctx context.Context, peerCh message.PeerChannels, peer [6]byte, pie
 	(*peerState)[peer] = PeerChoking
 }
 
+func queuePeer(peer [6]byte, state map[[6]byte]peerState, ch chan<- message.Peers) {
+	state[peer] = PeerNotFound
+	go func() {
+		time.Sleep(20 * time.Second)
+		ch <- [][6]byte{peer}
+	}()
+}
+
 func deadPeer(peer [6]byte, ch *message.SupervisorChannels, peerTasks map[[6]byte]message.DownloadRange, taskPeers map[int][6]byte) {
 	close(ch.ToPeerWorkerToDownload[peer])
 	delete(ch.ToPeerWorkerToDownload, peer)
@@ -158,7 +167,8 @@ func StartSupervisor(ctx context.Context, torrentFile TorrentFile, port int) {
 	peerBitFields := make(map[[6]byte][]byte)
 	var peerQueue *util.List[[6]byte]
 
-	availablePeers := 5
+	totalPeers := 5
+	availablePeers := totalPeers
 
 	for {
 		select {
@@ -171,7 +181,6 @@ func StartSupervisor(ctx context.Context, torrentFile TorrentFile, port int) {
 				deadPeer(msg.PeerId, &ch, peerTasks, tasksPeers)
 				availablePeers++
 				if peerQueue != nil {
-
 					availablePeers--
 					newPeer(ctx, peerCh, peerQueue.Value, &pieceArray, torrentFile.InfoHash, trackerSession.PeerId, &wgPeers, &ch, &peerState)
 					peerQueue = peerQueue.Next
@@ -179,7 +188,8 @@ func StartSupervisor(ctx context.Context, torrentFile TorrentFile, port int) {
 						peerQueue.Prev = nil
 					}
 				}
-				slog.Info(fmt.Sprintf("Supervisor: peers: %d", availablePeers))
+				queuePeer(msg.PeerId, peerState, traCh.SendPeers)
+				slog.Info(fmt.Sprintf("Supervisor: peers: %d", totalPeers-availablePeers))
 
 			case IdBitfield:
 				if _, ok := peerBitFields[msg.PeerId]; !ok {
@@ -191,7 +201,6 @@ func StartSupervisor(ctx context.Context, torrentFile TorrentFile, port int) {
 					if err == nil {
 						peerState[msg.PeerId] = PeerDownloading
 						ch.ToPeerWorkerToDownload[msg.PeerId] <- task
-						peerTasks[msg.PeerId] = task
 					}
 				}
 
@@ -202,12 +211,11 @@ func StartSupervisor(ctx context.Context, torrentFile TorrentFile, port int) {
 				setPiece(int(msg.Payload[0]), peerBitFields[msg.PeerId])
 
 				if peerState[msg.PeerId] == PeerWaiting {
-					task, err := findTask(&pieceArray, peerBitFields[msg.PeerId], int(pieceArray.pieceLength), tasksPeers, peerTasks, msg.PeerId)
-					if err == nil {
-						peerState[msg.PeerId] = PeerDownloading
-						ch.ToPeerWorkerToDownload[msg.PeerId] <- task
-						peerTasks[msg.PeerId] = task
-					}
+					peerState[msg.PeerId] = PeerDownloading
+					newTask := message.DownloadRange{PieceLength: pieceArray.pieceLength, Offset: int64(msg.Payload[0]) * pieceArray.pieceLength, Length: pieceArray.pieceLength}
+					peerTasks[msg.PeerId] = newTask
+					tasksPeers[int(msg.Payload[0])] = msg.PeerId
+					ch.ToPeerWorkerToDownload[msg.PeerId] <- newTask
 				}
 
 			case IdChoke:
@@ -226,7 +234,6 @@ func StartSupervisor(ctx context.Context, torrentFile TorrentFile, port int) {
 						// slog.Info("Supervisor: sent task")
 						peerState[msg.PeerId] = PeerDownloading
 						ch.ToPeerWorkerToDownload[msg.PeerId] <- task
-						peerTasks[msg.PeerId] = task
 
 					}
 				}
@@ -241,7 +248,6 @@ func StartSupervisor(ctx context.Context, torrentFile TorrentFile, port int) {
 					if err == nil {
 						peerState[msg.PeerId] = PeerDownloading
 						ch.ToPeerWorkerToDownload[msg.PeerId] <- task
-						peerTasks[msg.PeerId] = task
 					}
 				}
 			}
