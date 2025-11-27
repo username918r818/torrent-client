@@ -24,32 +24,9 @@ const (
 	Corrupted
 )
 
-type Piece interface {
-	GetState() PieceState
-	SetState(PieceState)
-	GetData() []byte
-	SetData(data []byte)
-}
-
-type rawPiece struct {
+type Piece struct {
 	state PieceState
 	data  []byte
-}
-
-func (r *rawPiece) GetState() PieceState {
-	return r.state
-}
-
-func (r *rawPiece) SetState(s PieceState) {
-	r.state = s
-}
-
-func (r *rawPiece) GetData() []byte {
-	return r.data
-}
-
-func (r *rawPiece) SetData(data []byte) {
-	r.data = data
 }
 
 type PieceArray struct {
@@ -87,20 +64,20 @@ func InitPieceArray(totalBytes, pieceLength int64) (a PieceArray) {
 func UpdatePiece(pieceIndex int, a *PieceArray) ([]byte, error) {
 	a.locks[pieceIndex].Lock()
 	defer a.locks[pieceIndex].Unlock()
-	if a.pieces[pieceIndex].GetState() != NotStarted && a.pieces[pieceIndex].GetState() != InProgress {
+	if a.pieces[pieceIndex].state != NotStarted && a.pieces[pieceIndex].state != InProgress {
 		return nil, errors.New("Piece: can't update already downloaded piece")
 	}
-	if a.pieces[pieceIndex].GetState() == NotStarted {
-		a.pieces[pieceIndex].SetState(InProgress)
+	if a.pieces[pieceIndex].state == NotStarted {
+		a.pieces[pieceIndex].state = InProgress
 		newLength := a.pieceLength
 		if pieceIndex == len(a.pieces)-1 {
 			newLength = a.lastPieceLength
 		}
-		a.pieces[pieceIndex].SetData(make([]byte, newLength))
-		return a.pieces[pieceIndex].GetData(), nil
+		a.pieces[pieceIndex].data = make([]byte, newLength)
+		return a.pieces[pieceIndex].data, nil
 	}
 
-	return a.pieces[pieceIndex].GetData(), nil
+	return a.pieces[pieceIndex].data, nil
 }
 
 func StartPieceWorker(ctx context.Context, pieces *PieceArray, tf *TorrentFile, fileMap map[string]*os.File, ch message.PieceChannels) {
@@ -122,7 +99,7 @@ func StartPieceWorker(ctx context.Context, pieces *PieceArray, tf *TorrentFile, 
 			ns, sai := -newBlock.Length, newBlock.Length
 			validated := false
 			if checkRange {
-				if Validate(pieces.pieces[pieceIndex].GetData(), tf.Pieces[pieceIndex]) {
+				if Validate(pieces.pieces[pieceIndex].data, tf.Pieces[pieceIndex]) {
 					validated = true
 					pieces.listTLock.Lock()
 					pieces.toSave = util.InsertRange(pieces.toSave, pieceLowerBound, pieceUpperBound)
@@ -179,7 +156,7 @@ func StartPieceWorker(ctx context.Context, pieces *PieceArray, tf *TorrentFile, 
 
 			dataToSend := make([][]byte, lastPiece+1)
 			for i := firstPiece; i <= lastPiece; i++ {
-				dataToSend[i] = pieces.pieces[i].GetData()
+				dataToSend[i] = pieces.pieces[i].data
 			}
 
 			msg := message.SaveRange{}
@@ -222,8 +199,8 @@ func StartPieceWorker(ctx context.Context, pieces *PieceArray, tf *TorrentFile, 
 						continue
 					}
 				}
-				pieces.pieces[i].SetState(Saved)
-				pieces.pieces[i].SetData(nil)
+				pieces.pieces[i].state = Saved
+				pieces.pieces[i].data = nil
 			}
 
 		case <-ctx.Done():
