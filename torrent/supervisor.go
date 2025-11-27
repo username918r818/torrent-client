@@ -91,9 +91,15 @@ func newPeer(ctx context.Context, peerCh message.PeerChannels, peer [6]byte, pie
 	(*peerState)[peer] = PeerChoking
 }
 
-func deadPeer(peer [6]byte, ch *message.SupervisorChannels) {
+func deadPeer(peer [6]byte, ch *message.SupervisorChannels, peerTasks map[[6]byte]message.DownloadRange, taskPeers map[int][6]byte) {
 	close(ch.ToPeerWorkerToDownload[peer])
 	delete(ch.ToPeerWorkerToDownload, peer)
+	delete(peerTasks, peer)
+	for k, v := range taskPeers { // TODO fix complexity
+		if v == peer {
+			delete(taskPeers, k)
+		}
+	}
 }
 
 func StartSupervisor(ctx context.Context, torrentFile TorrentFile, port int) {
@@ -153,10 +159,8 @@ func StartSupervisor(ctx context.Context, torrentFile TorrentFile, port int) {
 			switch msg.Id {
 			case IdDead:
 				slog.Info("Supervisor: new dead")
-				// TODO clean up peerTasks TODO
 				peerState[msg.PeerId] = PeerDead
-
-				deadPeer(msg.PeerId, &ch)
+				deadPeer(msg.PeerId, &ch, peerTasks, tasksPeers)
 				availablePeers++
 				if peerQueue != nil {
 
