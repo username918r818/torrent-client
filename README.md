@@ -1,112 +1,40 @@
 # Torrent Client
 
-A concurrent BitTorrent client implementation in Go featuring an actor-model architecture for efficient peer-to-peer file downloading.
-
 ## Features
 
-- Pipelined block requests (5 concurrent requests per peer)
-- Parallel peer connections
-- Parallel disk I/O with multiple file workers
-- Parallel piece validation and packing
-- Multi-file torrent support
-
-## Usage
-
-```bash
-go run . <torrent-file>
-```
+1. Multithreaded downloading, validation, piece processing, and disk writing.
+2. Supports multifile torrents and multiple torrents simultaneously.
+3. Uses an actor-based architecture. Each torrent has separate worker pools, each with a dedicated role.
+4. Resilient to network errors and disk write failures.
 
 ## Architecture
 
 ### Supervisor
 
-The central coordinator that manages the entire download process:
-
-- **Peer Management**: Maintains up to N active peer connections, queues additional peers
-- **Task Assignment**: Allocates download tasks to available peers based on their bitfields
-- **State Tracking**: Monitors peer states (choking, downloading, waiting, dead)
-- **Message Routing**: Distributes channels between workers
-
-The supervisor uses a state machine to track each peer:
-
-- `PeerNotFound`: Peer not yet connected
-- `PeerCouldBeAdded`: Ready to connect
-- `PeerDead`: Connection failed or closed
-- `PeerChoking`: Peer is choking us
-- `PeerDownloading`: Actively downloading
-- `PeerWaiting`: Ready for new task
+The supervisor creates a pool of piece workers and a dynamic pool of peer workers, distributes tasks to peer workers, monitors their status, and if necessary, reassigns tasks. There is one supervisor goroutine per torrent. In case of connection drops, it queues the peers and attempts to reconnect after some time.
 
 ### Tracker Worker
 
-Communicates with the BitTorrent tracker:
+The tracker worker periodically queries the tracker for peer information and passes it to the supervisor. It supports multifile torrents and torrents with multiple trackers.
 
-- Sends announce requests with download progress
-- Receives peer lists from tracker
-- Periodically polls tracker for new peers
-- Reports download statistics (uploaded, downloaded, left)
+### Piece Worker Pool
 
-### Piece Workers (3 workers)
+A pool of piece workers that manage the state of pieces, validate them, and upon request from file workers, assemble larger blocks for writing to disk. Initially, a single managing structure is created with various locks and structures containing ranges of downloaded data, sent data, and already written data. This approach allows handling errors and avoiding issues with concurrent data access due to the asynchronous and distributed nature of the system.
 
-Handle piece validation and disk write coordination:
+### Peer Worker Pool
 
-- **Download Tracking**: Uses efficient range structures to track which bytes are downloaded or saved
-- **Piece Validation**: Validates complete pieces using SHA-1 hashes
-- **Write Queue Management**: Queues validated pieces for disk writes
-- **Memory Management**: Frees piece buffers after successful disk writes
-- **Multi-file Support**: Maps piece offsets to correct file positions
+Each peer worker has its own peer address. It sends all messages to the supervisor and receives commands from it (e.g., download a specific range of data). The worker splits the range into pieces and blocks, writes data to the shared byte array, and notifies piece workers about completed work.
 
-### Peer Workers (1-50 workers per peer)
+First, it initializes the connection, sends handshakes. Then it creates an auxiliary actor dedicated to reading; when reading, it sends the read messages to the supervisor and only the type of messages to the worker itself. The worker reads commands from the supervisor; if the supervisor sees that the peer is unchoking and has the required pieces, it gives the command to download a certain range of data. Then the worker makes up to 5 requests simultaneously and checks that responses have been received for all requests (it is notified by the auxiliary actor on reading).
 
-Each peer worker manages a single peer connection:
+### File Worker Pool
 
-- **Handshake**: Performs BitTorrent protocol handshake
-- **Message Protocol**: Implements BitTorrent wire protocol (choke, unchoke, interested, have, bitfield, request, piece)
-- **Pipelining**: Maintains 5 concurrent block requests per peer for optimal throughput
-- **Block Requests**: Requests 16 KB blocks sequentially within assigned pieces
-- **Timeout Handling**: 3-minute read/write timeouts with automatic reconnection
-- **Keep-alive**: Handles keep-alive messages during idle periods
+File workers are created separately. They receive messages from all torrents but send back the results of disk writes through a channel from the message, the so-called callback channel.
 
-The peer worker uses a request queue to pipeline downloads:
+## Interaction Between Actors
 
-```
-requestQueue < 5 → Send next request
-Receive piece → requestQueue--
-```
+[Package message (directory message — files channel.go and message.go)](./message/)
 
-### File Workers (5 workers)
+Actors communicate via channels. Each type of actor has its own set of channels. See [message/channel.go](./message/channel.go) for details. Message types are defined in [message/message.go](./message/message.go).
 
-Handle all disk I/O operations independently of torrent logic:
-
-- **Parallel Writes**: 5 concurrent workers for high-speed disk writes
-- **File Allocation**: Pre-allocates files with correct sizes
-- **Multi-file Support**: Handles torrents with multiple files and directory structures
-- **Callback System**: Reports write success/failure back to piece workers
-- **Error Recovery**: Failed writes are automatically retried
-
-The file workers are torrent-agnostic and can handle multiple torrents simultaneously, making them a shared resource pool.
-
-## Protocol Details
-
-### Block Size
-
-- Standard block size: 16 KB (16384 bytes)
-- Last block in piece may be smaller
-
-### Piece Size
-
-- Typically 256 KB to 1 MB (torrent-dependent)
-- Each piece is validated with SHA-1 hash
-
-### Connection Limits
-
-- Maximum concurrent peers: N
-- Pipelined requests per peer: 5
-- Total potential throughput: 250 concurrent block downloads
-
-## Performance Optimizations
-
-1. **Pipelined Requests**: Each peer maintains 5 concurrent block requests
-2. **Parallel Peers**: Up to N simultaneous peer connections
-3. **Parallel Disk I/O**: 5 file workers for concurrent writes
-4. **Efficient Range Tracking**: O(log n) insertion and lookup for downloaded ranges
-5. **Memory Management**: Piece data freed immediately after disk write
+![actors](./actors.png)
