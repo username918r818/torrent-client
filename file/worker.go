@@ -9,6 +9,7 @@ import (
 )
 
 func StartFileWorker(ctx context.Context, ch message.FileChannels) {
+	ch.ReadyChannel <- true
 	for {
 		select {
 		case msg := <-ch.ToSaveChannel: // TODO fix offset
