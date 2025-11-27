@@ -3,6 +3,7 @@ package torrent
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"sync"
 
@@ -46,7 +47,6 @@ func getPiece(piece int, bitfield []byte) bool {
 }
 
 func findTask(pieceArray *PieceArray, bitfield []byte, length int, tasksPeers map[int][6]byte, peerTasks map[[6]byte]message.DownloadRange, peer [6]byte) (message.DownloadRange, error) {
-	slog.Info("Entered find task")
 	var msg message.DownloadRange
 	msg.PieceLength = pieceArray.pieceLength
 	for i, v := range pieceArray.pieces {
@@ -60,7 +60,6 @@ func findTask(pieceArray *PieceArray, bitfield []byte, length int, tasksPeers ma
 				msg.Length += msg.PieceLength
 				if msg.Length >= int64(length) {
 					tasksPeers[i] = peer
-					slog.Info("Leaving find task with msg")
 					peerTasks[peer] = msg
 					return msg, nil
 				}
@@ -78,7 +77,7 @@ func findTask(pieceArray *PieceArray, bitfield []byte, length int, tasksPeers ma
 		return msg, nil
 	}
 
-	return msg, errors.New("Supervisor: task not found")
+	return msg, errors.New("supervisor: task not found")
 }
 
 func newPeer(ctx context.Context, peerCh message.PeerChannels, peer [6]byte, pieceArray *PieceArray, infoHash, peerId [20]byte, wgPeers *sync.WaitGroup, ch *message.SupervisorChannels, peerState *map[[6]byte]peerState) {
@@ -95,11 +94,18 @@ func newPeer(ctx context.Context, peerCh message.PeerChannels, peer [6]byte, pie
 func deadPeer(peer [6]byte, ch *message.SupervisorChannels, peerTasks map[[6]byte]message.DownloadRange, taskPeers map[int][6]byte) {
 	close(ch.ToPeerWorkerToDownload[peer])
 	delete(ch.ToPeerWorkerToDownload, peer)
+	task, ok := peerTasks[peer]
+	if !ok {
+		return
+	}
 	delete(peerTasks, peer)
-	for k, v := range taskPeers { // TODO fix complexity
-		if v == peer {
-			delete(taskPeers, k)
+	firstIndex := task.Offset / task.PieceLength
+	lastIndex := (task.Length + task.Offset) / task.Length
+	for firstIndex <= lastIndex {
+		if taskPeers[int(firstIndex)] == peer {
+			delete(taskPeers, int(firstIndex))
 		}
+		firstIndex++
 	}
 }
 
@@ -118,7 +124,7 @@ func StartSupervisor(ctx context.Context, torrentFile TorrentFile, port int) {
 	var wgTracker, wgFiles, wgPiece, wgPeers sync.WaitGroup
 	wgTracker.Go(func() { StartWorkerTracker(ctx, trackerSession, traCh) })
 
-	for range 1 {
+	for range 2 {
 		wgFiles.Go(func() { file.StartFileWorker(ctx, fileCh) })
 	}
 
@@ -157,7 +163,7 @@ func StartSupervisor(ctx context.Context, torrentFile TorrentFile, port int) {
 	for {
 		select {
 		case msg := <-ch.FromPeerWorker:
-			slog.Info("Supervisor: received new message")
+			// slog.Info("Supervisor: received new message")
 			switch msg.Id {
 			case IdDead:
 				slog.Info("Supervisor: new dead")
@@ -173,6 +179,7 @@ func StartSupervisor(ctx context.Context, torrentFile TorrentFile, port int) {
 						peerQueue.Prev = nil
 					}
 				}
+				slog.Info(fmt.Sprintf("Supervisor: peers: %d", availablePeers))
 
 			case IdBitfield:
 				if _, ok := peerBitFields[msg.PeerId]; !ok {
@@ -180,7 +187,7 @@ func StartSupervisor(ctx context.Context, torrentFile TorrentFile, port int) {
 				}
 				copy(peerBitFields[msg.PeerId], msg.Payload)
 				if peerState[msg.PeerId] == PeerWaiting {
-					task, err := findTask(&pieceArray, peerBitFields[msg.PeerId], int(pieceArray.pieceLength)*3, tasksPeers, peerTasks, msg.PeerId)
+					task, err := findTask(&pieceArray, peerBitFields[msg.PeerId], int(pieceArray.pieceLength), tasksPeers, peerTasks, msg.PeerId)
 					if err == nil {
 						peerState[msg.PeerId] = PeerDownloading
 						ch.ToPeerWorkerToDownload[msg.PeerId] <- task
@@ -195,7 +202,7 @@ func StartSupervisor(ctx context.Context, torrentFile TorrentFile, port int) {
 				setPiece(int(msg.Payload[0]), peerBitFields[msg.PeerId])
 
 				if peerState[msg.PeerId] == PeerWaiting {
-					task, err := findTask(&pieceArray, peerBitFields[msg.PeerId], int(pieceArray.pieceLength)*3, tasksPeers, peerTasks, msg.PeerId)
+					task, err := findTask(&pieceArray, peerBitFields[msg.PeerId], int(pieceArray.pieceLength), tasksPeers, peerTasks, msg.PeerId)
 					if err == nil {
 						peerState[msg.PeerId] = PeerDownloading
 						ch.ToPeerWorkerToDownload[msg.PeerId] <- task
@@ -207,16 +214,16 @@ func StartSupervisor(ctx context.Context, torrentFile TorrentFile, port int) {
 				peerState[msg.PeerId] = PeerChoking
 
 			case IdUnchoke:
-				slog.Info("Supervisor: unchoke")
+				// slog.Info("Supervisor: unchoke")
 				peerState[msg.PeerId] = PeerWaiting
 				if peerState[msg.PeerId] == PeerWaiting {
-					slog.Info("Supervisor: searching for task123")
+					// slog.Info("Supervisor: searching for task123")
 
-					task, err := findTask(&pieceArray, peerBitFields[msg.PeerId], int(pieceArray.pieceLength)*3, tasksPeers, peerTasks, msg.PeerId)
-					slog.Info("Supervisor: ended search for task")
+					task, err := findTask(&pieceArray, peerBitFields[msg.PeerId], int(pieceArray.pieceLength), tasksPeers, peerTasks, msg.PeerId)
+					// slog.Info("Supervisor: ended search for task")
 
 					if err == nil {
-						slog.Info("Supervisor: sent task")
+						// slog.Info("Supervisor: sent task")
 						peerState[msg.PeerId] = PeerDownloading
 						ch.ToPeerWorkerToDownload[msg.PeerId] <- task
 						peerTasks[msg.PeerId] = task
@@ -224,13 +231,13 @@ func StartSupervisor(ctx context.Context, torrentFile TorrentFile, port int) {
 					}
 				}
 
-				slog.Info("Supervisor: searched for task")
+				// slog.Info("Supervisor: searched for task")
 
 			case IdReady:
-				slog.Info("Supervisor: isReady")
+				// slog.Info("Supervisor: isReady")
 				peerState[msg.PeerId] = PeerWaiting
 				if peerState[msg.PeerId] == PeerWaiting {
-					task, err := findTask(&pieceArray, peerBitFields[msg.PeerId], int(pieceArray.pieceLength)*3, tasksPeers, peerTasks, msg.PeerId)
+					task, err := findTask(&pieceArray, peerBitFields[msg.PeerId], int(pieceArray.pieceLength), tasksPeers, peerTasks, msg.PeerId)
 					if err == nil {
 						peerState[msg.PeerId] = PeerDownloading
 						ch.ToPeerWorkerToDownload[msg.PeerId] <- task
@@ -240,7 +247,7 @@ func StartSupervisor(ctx context.Context, torrentFile TorrentFile, port int) {
 			}
 
 		case p := <-ch.GetPeers:
-			slog.Info("Supervisor: received peers")
+			// slog.Info("Supervisor: received peers")
 			for _, i := range p {
 				if peerState[i] == PeerNotFound {
 					if availablePeers > 0 {
@@ -264,6 +271,6 @@ func StartSupervisor(ctx context.Context, torrentFile TorrentFile, port int) {
 		case <-ctx.Done():
 			return
 		}
-		slog.Info("Supervisor: loop ended")
+		// slog.Info("Supervisor: loop ended")
 	}
 }

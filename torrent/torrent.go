@@ -102,6 +102,11 @@ func New(data []byte) (TorrentFile, error) {
 	}
 
 	hBeg, hEnd, err := util.GetIndeces("info", data)
+	
+	if err != nil {
+		return t, err
+	}
+
 	t.InfoHash = sha1.Sum(data[hBeg:hEnd])
 
 	return t, nil

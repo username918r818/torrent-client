@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -37,6 +38,8 @@ type TrackerSession struct {
 func StartWorkerTracker(ctx context.Context, ts *TrackerSession, ch message.TrackerChannels) {
 	ts.Event = EventStarted
 
+	tmpCounter := int64(-1)
+
 	for {
 		timer := time.NewTimer(time.Duration(ts.Interval) * time.Second)
 		select {
@@ -48,6 +51,10 @@ func StartWorkerTracker(ctx context.Context, ts *TrackerSession, ch message.Trac
 			ts.Downloaded = stats[Validated] + stats[Saving] + stats[Saved]
 			if ts.Left == 0 {
 				ts.Event = EventCompleted
+			}
+			if stats[Downloaded]*10000/(stats[Downloaded]+stats[NotStarted]) > int64(tmpCounter) {
+				tmpCounter = stats[Downloaded] * 10000 / (stats[Downloaded] + stats[NotStarted])
+				slog.Info(fmt.Sprintf("%v, downloaded: %v, left: %v", stats[Downloaded]*10000/(stats[Downloaded]+stats[NotStarted]), stats[Downloaded], stats[NotStarted]))
 			}
 		case <-ctx.Done():
 			return
@@ -88,6 +95,10 @@ func (ts *TrackerSession) proceed(ch message.TrackerChannels) {
 
 	defer resp.Body.Close()
 	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		ts.Interval = 60
+		log.Printf("can't read body: %v", err)
+	}
 	be, err := util.Decode(body)
 
 	if err != nil {

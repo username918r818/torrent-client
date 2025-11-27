@@ -85,7 +85,7 @@ func StartPieceWorker(ctx context.Context, pieces *PieceArray, tf *TorrentFile, 
 	for {
 		select {
 		case newBlock := <-ch.PeerHasDownloaded:
-			slog.Info("Piece worker: received new block")
+			// slog.Info("Piece worker: received new block")
 			pieceIndex := newBlock.Offset / pieces.pieceLength
 			pieceLowerBound := pieceIndex * pieces.pieceLength
 			pieceUpperBound := pieceLowerBound + pieces.pieceLength
@@ -122,7 +122,7 @@ func StartPieceWorker(ctx context.Context, pieces *PieceArray, tf *TorrentFile, 
 			pieces.Unlock()
 
 		case ready := (<-ch.FileWorkerReady):
-			slog.Info("Piece worker: received new ready")
+			// slog.Info("Piece worker: received new ready")
 			if !ready {
 				break
 			}
@@ -141,27 +141,33 @@ func StartPieceWorker(ctx context.Context, pieces *PieceArray, tf *TorrentFile, 
 			totalOffset := firstRange.Value.First
 			length := firstRange.Value.Second - firstRange.Value.First
 			var f *os.File
-			var fileStartLength, fLength int64
+			var fileStartOffset, fLength int64
+			var currentOffset int64
 			for _, curFile := range tf.Files {
-				if fileStartLength+curFile.Length > totalOffset {
+				if currentOffset+curFile.Length > totalOffset {
 					if len(curFile.Path) > 1 {
 						f = fileMap[strings.Join(curFile.Path, "/")]
 					} else {
 						f = fileMap[curFile.Path[0]]
 					}
+					fileStartOffset = currentOffset
 					fLength = curFile.Length
+					break
 				}
-				fileStartLength += curFile.Length
+				currentOffset += curFile.Length
 			}
-			if fLength < length {
-				length = fLength
+
+			fileOffsetInFile := totalOffset - fileStartOffset
+			remainingInFile := fLength - fileOffsetInFile
+			if length > remainingInFile {
+				length = remainingInFile
 				pieces.listTLock.Lock()
 				pieces.toSave = util.InsertRange(pieces.toSave, firstRange.Value.First+length, firstRange.Value.Second)
 				pieces.listTLock.Unlock()
 			}
 
 			firstPiece := totalOffset / pieces.pieceLength
-			lastPiece := (totalOffset + length) / pieces.pieceLength
+			lastPiece := (totalOffset + length - 1) / pieces.pieceLength
 
 			dataToSend := make([][]byte, lastPiece+1)
 			for i := firstPiece; i <= lastPiece; i++ {
@@ -173,7 +179,7 @@ func StartPieceWorker(ctx context.Context, pieces *PieceArray, tf *TorrentFile, 
 			msg.Pieces = dataToSend
 			msg.PieceLength = pieces.pieceLength
 			msg.Offset = totalOffset
-			msg.FileOffset = totalOffset - fileStartLength
+			msg.FileOffset = totalOffset - fileOffsetInFile
 			msg.Length = length
 			msg.File = f
 			msg.Callback = ch.CallBack

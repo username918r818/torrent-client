@@ -34,7 +34,7 @@ const (
 )
 
 const (
-	BlockSize = 2 ^ 14
+	BlockSize = 1 << 14
 )
 
 type peerStatus struct {
@@ -115,11 +115,11 @@ func handshakeRead(conn net.Conn, infoHash [20]byte) error {
 	}
 
 	if BitTorrentPstr != string(buf[:pStrLen]) {
-		return fmt.Errorf("Peer: wrong protocol")
+		return fmt.Errorf("peer: wrong protocol")
 	}
 
 	if !bytes.Equal(infoHash[:], buf[pStrLen+8:pStrLen+8+20]) {
-		return fmt.Errorf("Peer: wrong hash_info")
+		return fmt.Errorf("peer: wrong hash_info")
 	}
 	return nil
 }
@@ -138,7 +138,7 @@ func handshakeWrite(conn net.Conn, pstr string, infoHash [20]byte, peerId [20]by
 
 func download(conn net.Conn, task message.DownloadRange, ch message.PeerChannels, a *PieceArray, peer [6]byte, ps *peerStatus) error {
 
-	slog.Info("Peer: downloading")
+	// slog.Info("Peer: downloading")
 	curIndex := task.Offset
 	requestQueue := 0
 
@@ -150,18 +150,23 @@ func download(conn net.Conn, task message.DownloadRange, ch message.PeerChannels
 		}
 	}
 
-	for curIndex < task.Length+task.Offset {
-		if requestQueue < 5 && !ps.choked {
-			index := task.Offset / a.pieceLength
-			begin := task.Offset % a.pieceLength
-			length := BlockSize
-			if begin+BlockSize > a.pieceLength {
-				length = int(a.pieceLength - begin)
+	for curIndex < task.Length+task.Offset || requestQueue != 0 {
+		for !ps.choked && requestQueue < 5 && curIndex < task.Length+task.Offset {
+			index := curIndex / a.pieceLength
+			begin := curIndex % a.pieceLength
+			length := int64(BlockSize)
+			if begin+length > a.pieceLength {
+				length = a.pieceLength - begin
+			}
+			if curIndex+length > task.Offset+task.Length {
+				length = task.Offset + task.Length - curIndex
 			}
 			err := sendRequest(conn, uint32(index), uint32(begin), uint32(length))
+			requestQueue++
 			if err != nil {
 				return err
 			}
+			curIndex += length
 		}
 		msg, err := readMessage(conn, peer)
 		if err != nil {
@@ -176,7 +181,7 @@ func download(conn net.Conn, task message.DownloadRange, ch message.PeerChannels
 			return nil
 
 		case IdPiece:
-			slog.Info("Peer: received new piece")
+			// slog.Info("Peer: received new piece")
 			index, begin, block := int(binary.BigEndian.Uint32(msg.Payload[:4])), int64(binary.BigEndian.Uint32(msg.Payload[4:8])), msg.Payload[8:]
 			tmpB, err := UpdatePiece(index, a)
 			if err != nil {
@@ -186,6 +191,7 @@ func download(conn net.Conn, task message.DownloadRange, ch message.PeerChannels
 			copy(tmpB[begin:], block)
 			var tmpOffset, length int64 = int64(index)*int64(a.pieceLength) + int64(begin), int64(len(block))
 			ch.DownloadedChannel <- message.Block{Offset: tmpOffset, Length: length}
+			requestQueue--
 		}
 		ch.PeerMessageChannel <- msg
 	}
@@ -240,13 +246,13 @@ func StartPeerWorker(ctx context.Context, ch message.PeerChannels, a *PieceArray
 
 	ps := peerStatus{true, true}
 
-	slog.Info("Peer worker: survived before loop")
+	// slog.Info("Peer worker: survived before loop")
 
 	for {
 		timer := time.NewTimer(time.Second * 1)
 		select {
 		case task := <-ch.ToDownload:
-			slog.Info("Peer worker: got a task")
+			// slog.Info("Peer worker: got a task")
 
 			err = download(conn, task, ch, a, peer, &ps)
 			if err != nil {
@@ -254,7 +260,7 @@ func StartPeerWorker(ctx context.Context, ch message.PeerChannels, a *PieceArray
 				timer.Stop()
 				return
 			}
-		case _ = <-timer.C:
+		case <-timer.C:
 			timer.Stop()
 			msg, err := readMessage(conn, peer)
 			if err != nil {

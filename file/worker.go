@@ -14,12 +14,12 @@ func StartFileWorker(ctx context.Context, ch message.FileChannels) {
 	for {
 		select {
 		case msg := <-ch.ToSaveChannel:
-			slog.Info("File worker: received msg: " + fmt.Sprintf("%d", msg.Length))
 			if msg.Length == -1 {
-				time.Sleep(time.Second)
+				time.Sleep(time.Second * 10)
 				ch.ReadyChannel <- true
 				break
 			}
+			slog.Info("File worker: received msg: " + fmt.Sprintf("%d", msg.Length))
 			data := make([]byte, msg.Length)
 			var index int64
 			pieceIndex := msg.Offset / msg.PieceLength
