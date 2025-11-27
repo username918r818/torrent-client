@@ -189,8 +189,8 @@ func download(conn net.Conn, task message.DownloadRange, ch message.PeerChannels
 		}
 	}
 
-	for curIndex < task.Length+task.Offset || counter > 0 {
-		for !ps.choked && curIndex < task.Length+task.Offset && counter < 5 {
+	for curIndex < task.Length+task.Offset || requestCounter > 0 {
+		for !ps.choked && curIndex < task.Length+task.Offset && requestCounter < 5 {
 			index := curIndex / a.pieceLength
 			begin := curIndex % a.pieceLength
 			length := int64(BlockSize)
