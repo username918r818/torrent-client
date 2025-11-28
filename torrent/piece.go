@@ -43,6 +43,8 @@ type PieceArray struct {
 	Saved           *util.List[util.Pair[int64]] // used to know ranges of saved data
 }
 
+var ErrValidatedPiece = errors.New("piece already validated")
+
 func Validate(data []byte, hash [20]byte) bool {
 	return sha1.Sum(data) == hash
 }
@@ -65,7 +67,7 @@ func UpdatePiece(pieceIndex int, a *PieceArray) ([]byte, error) {
 	a.locks[pieceIndex].Lock()
 	defer a.locks[pieceIndex].Unlock()
 	if a.pieces[pieceIndex].state != NotStarted && a.pieces[pieceIndex].state != InProgress {
-		return nil, errors.New("Piece: can't update already downloaded piece")
+		return nil, ErrValidatedPiece
 	}
 	if a.pieces[pieceIndex].data == nil {
 		a.pieces[pieceIndex].state = InProgress

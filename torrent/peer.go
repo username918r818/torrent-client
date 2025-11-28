@@ -26,6 +26,7 @@ const (
 	IdPiece
 	IdCancel
 	IdPort
+	IdNextPiece byte = 252
 	IdKeepAlive byte = 253
 	IdReady     byte = 254
 	IdDead      byte = 255
@@ -88,6 +89,14 @@ func infiniteReadingMessage(conn net.Conn, peerId [6]byte, toWriter chan<- byte,
 			index, begin, block := int(binary.BigEndian.Uint32(msg.Payload[:4])), int64(binary.BigEndian.Uint32(msg.Payload[4:8])), msg.Payload[8:]
 			tmpB, err := UpdatePiece(index, a)
 			if err != nil {
+				if errors.Is(ErrValidatedPiece, err) {
+					toWriter <- IdNextPiece
+					toWriter <- msg.Payload[0]
+					toWriter <- msg.Payload[1]
+					toWriter <- msg.Payload[2]
+					toWriter <- msg.Payload[3]
+					continue
+				}
 				slog.Error("Peer: " + err.Error())
 				toWriter <- IdDead
 				return
@@ -208,16 +217,24 @@ func download(conn net.Conn, task message.DownloadRange, ch message.PeerChannels
 		for !exitLoop {
 			select {
 			case msgId := <-fromReader:
-				switch {
-				case msgId == IdChoke:
+				switch msgId {
+				case IdChoke:
 					ps.choked = true
 					return nil
-				case msgId == IdUnchoke:
+				case IdUnchoke:
 					ps.choked = false
-				case msgId == IdPiece:
+				case IdPiece:
 					requestCounter--
-				case msgId == IdDead:
+				case IdDead:
 					return errors.New("peer: received dead signal from reader")
+				case IdNextPiece:
+					curPieceArr := make([]byte, 4)
+					curPieceArr[0] = <-fromReader
+					curPieceArr[1] = <-fromReader
+					curPieceArr[2] = <-fromReader
+					curPieceArr[3] = <-fromReader
+					curPieceIndex := int(binary.BigEndian.Uint32(curPieceArr))
+					curIndex = int64(curPieceIndex+1) * a.pieceLength
 				}
 
 			default:
