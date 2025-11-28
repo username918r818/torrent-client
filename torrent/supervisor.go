@@ -51,7 +51,7 @@ func findTask(pieceArray *PieceArray, bitfield []byte, length int, tasksPeers ma
 	var msg message.DownloadRange
 	msg.PieceLength = pieceArray.pieceLength
 	for i, v := range pieceArray.pieces {
-		if _, ok := tasksPeers[i]; !ok && (v.state == NotStarted) && getPiece(i, bitfield) {
+		if _, ok := tasksPeers[i]; !ok && (v.state == NotStarted || v.state == InProgress) && getPiece(i, bitfield) {
 			curLength := msg.PieceLength
 			if i == len(pieceArray.pieces)-1 {
 				curLength = pieceArray.lastPieceLength
@@ -247,6 +247,7 @@ func StartSupervisor(ctx context.Context, torrentFile TorrentFile, port int) {
 				// slog.Info("Supervisor: isReady")
 				peerState[msg.PeerId] = PeerWaiting
 				if peerState[msg.PeerId] == PeerWaiting {
+					resetTasks(msg.PeerId, peerTasks, tasksPeers)
 					task, err := findTask(&pieceArray, peerBitFields[msg.PeerId], int(pieceArray.pieceLength), tasksPeers, peerTasks, msg.PeerId)
 					if err == nil {
 						peerState[msg.PeerId] = PeerDownloading
