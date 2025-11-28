@@ -62,6 +62,71 @@ func TestAlloc(t *testing.T) {
 			t.Fatal("expected error, but got none")
 		}
 	})
+
+	t.Run("inner directories with files", func(t *testing.T) {
+		nestedDir := filepath.Join(tempDir, "dir1", "dir2")
+		filePath := filepath.Join(nestedDir, "file1.txt")
+
+		files := []struct {
+			Length int64
+			Path   []string
+		}{
+			{Length: 1024, Path: []string{nestedDir, "file1.txt"}},
+		}
+
+		_, err := file.Alloc(files)
+		if err != nil {
+			t.Fatalf("expected no error, but got %v", err)
+		}
+
+		if _, err := os.Stat(nestedDir); os.IsNotExist(err) {
+			t.Fatalf("expected directory to be created, but got error: %v", err)
+		}
+
+		_, err = os.Stat(filePath)
+		if err != nil {
+			t.Fatalf("expected file to be created, but got error: %v", err)
+		}
+
+		t.Run("multiple files with different levels of nesting", func(t *testing.T) {
+			nestedDirs := []struct {
+				Path string
+				File string
+			}{
+				{Path: filepath.Join(tempDir, "dir1"), File: "file1.txt"},
+				{Path: filepath.Join(tempDir, "dir1", "subdir1"), File: "file2.txt"},
+				{Path: filepath.Join(tempDir, "dir2"), File: "file3.txt"},
+				{Path: filepath.Join(tempDir, "dir2", "subdir2", "subsubdir"), File: "file4.txt"},
+			}
+
+			files := []struct {
+				Length int64
+				Path   []string
+			}{
+				{Length: 1024, Path: []string{nestedDirs[0].Path, nestedDirs[0].File}},
+				{Length: 1024, Path: []string{nestedDirs[1].Path, nestedDirs[1].File}},
+				{Length: 1024, Path: []string{nestedDirs[2].Path, nestedDirs[2].File}},
+				{Length: 1024, Path: []string{nestedDirs[3].Path, nestedDirs[3].File}},
+			}
+
+			_, err := file.Alloc(files)
+			if err != nil {
+				t.Fatalf("expected no error, but got %v", err)
+			}
+
+			for _, dir := range nestedDirs {
+				if _, err := os.Stat(dir.Path); os.IsNotExist(err) {
+					t.Fatalf("expected directory %s to be created, but got error: %v", dir.Path, err)
+				}
+
+				filePath := filepath.Join(dir.Path, dir.File)
+				if _, err := os.Stat(filePath); os.IsNotExist(err) {
+					t.Fatalf("expected file %s to be created, but got error: %v", filePath, err)
+				}
+			}
+		})
+
+	})
 }
 
 func TestWriteChunk(t *testing.T) {

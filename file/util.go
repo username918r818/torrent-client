@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -17,20 +18,20 @@ func Alloc(files []struct {
 		if len(f.Path) == 0 {
 			return nil, errors.New("Alloc: file.Path == 0")
 		}
-		var filepath string
+		var filePath string
 		if len(f.Path) > 1 {
-			dirPath := strings.Join(f.Path[:len(f.Path)-1], "/")
-			err := os.MkdirAll(dirPath, 0744)
+			dirPath := filepath.Join(f.Path[:len(f.Path)-1]...)
+			err := os.MkdirAll(dirPath, 0755)
 			if err != nil {
 				return nil, fmt.Errorf("Alloc: %w", err)
 			}
-			filepath = strings.Join(f.Path, "/")
+			filePath = strings.Join(f.Path, "/")
 		} else {
-			filepath = f.Path[0]
+			filePath = f.Path[0]
 		}
-		slog.Info(filepath)
+		slog.Info(filePath)
 		slog.Info(f.Path[0])
-		file, err := os.Create(filepath)
+		file, err := os.Create(filePath)
 		if err != nil {
 			return nil, fmt.Errorf("Alloc: %w", err)
 		}
@@ -39,7 +40,7 @@ func Alloc(files []struct {
 		if err != nil {
 			return nil, fmt.Errorf("Alloc: %w", err)
 		}
-		m[filepath] = file
+		m[filePath] = file
 	}
 
 	return m, nil
