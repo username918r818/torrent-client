@@ -214,7 +214,7 @@ func StartPieceWorker(ctx context.Context, pieces *PieceArray, tf *TorrentFile, 
 				if i == firstPiece || i == lastPiece {
 					lw, up := i*pieces.pieceLength, (i+1)*pieces.pieceLength
 					pieces.listSLock.Lock()
-					checkRange := util.Contains(pieces.downloaded, lw, up)
+					checkRange := util.Contains(pieces.Saved, lw, up)
 					pieces.listSLock.Unlock()
 					if !checkRange {
 						continue
