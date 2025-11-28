@@ -26,19 +26,19 @@ const (
 )
 
 type Piece struct {
-	state PieceState
-	data  []byte
+	state      PieceState
+	data       []byte
+	downloaded *util.List[util.Pair[int64]] // downloaded ranges in byte
 }
 
 type PieceArray struct {
 	pieces          []Piece
 	pieceLength     int64
 	lastPieceLength int64
-	locks           []sync.Mutex
-	listDLock       sync.Mutex                   // locks for downloaded
-	downloaded      *util.List[util.Pair[int64]] // used to know ranges of downloaded but may be saved yet data
+	dataLocks       []sync.Mutex                 // for writing into pieces
+	listDLocks      []sync.Mutex                 // locks for downloaded
 	listTLock       sync.Mutex                   // locks for toSave
-	toSave          *util.List[util.Pair[int64]] // used to know ranges of downloaded but not saved yet data
+	toSave          *util.List[util.Pair[int64]] // used to know ranges in piece indicies of downloaded but not saved yet data
 	listSLock       sync.Mutex                   // locks for Saved
 	Saved           *util.List[util.Pair[int64]] // used to know ranges of saved data
 }
@@ -58,14 +58,14 @@ func InitPieceArray(totalBytes, pieceLength int64) (a PieceArray) {
 		a.lastPieceLength = pieceLength
 	}
 	a.pieces = make([]Piece, arrLength)
-	a.locks = make([]sync.Mutex, arrLength)
+	a.dataLocks = make([]sync.Mutex, arrLength)
 	a.pieceLength = pieceLength
 	return
 }
 
 func UpdatePiece(pieceIndex int, a *PieceArray) ([]byte, error) {
-	a.locks[pieceIndex].Lock()
-	defer a.locks[pieceIndex].Unlock()
+	a.dataLocks[pieceIndex].Lock()
+	defer a.dataLocks[pieceIndex].Unlock()
 	if a.pieces[pieceIndex].state != NotStarted && a.pieces[pieceIndex].state != InProgress {
 		return nil, ErrValidatedPiece
 	}
@@ -94,26 +94,30 @@ func StartPieceWorker(ctx context.Context, pieces *PieceArray, tf *TorrentFile, 
 				pieceUpperBound = pieceLowerBound + pieces.lastPieceLength
 			}
 
-			pieces.listDLock.Lock()
-			pieces.downloaded = util.InsertRange(pieces.downloaded, newBlock.Offset, newBlock.Offset+newBlock.Length)
-			checkRange := util.Contains(pieces.downloaded, pieceLowerBound, pieceUpperBound)
-			pieces.listDLock.Unlock()
+			pieces.listDLocks[pieceIndex].Lock()
+			pieces.pieces[pieceIndex].downloaded = util.InsertRange(pieces.pieces[pieceIndex].downloaded, newBlock.Offset, newBlock.Offset+newBlock.Length)
+			checkRange := util.Contains(pieces.pieces[pieceIndex].downloaded, pieceLowerBound, pieceUpperBound)
+			pieces.listDLocks[pieceIndex].Unlock()
 
 			ns, sai := -newBlock.Length, newBlock.Length
 			validated := false
 			if checkRange {
-				pieces.locks[pieceIndex].Lock()
+				pieces.dataLocks[pieceIndex].Lock()
 				if Validate(pieces.pieces[pieceIndex].data, tf.Pieces[pieceIndex]) {
 					validated = true
 					pieces.pieces[pieceIndex].state = Validated
+					pieces.dataLocks[pieceIndex].Unlock()
 					pieces.listTLock.Lock()
 					pieces.toSave = util.InsertRange(pieces.toSave, pieceLowerBound, pieceUpperBound)
 					pieces.listTLock.Unlock()
 				} else {
+					pieces.dataLocks[pieceIndex].Unlock()
 					ns += pieceUpperBound - pieceLowerBound
 				}
 				sai += pieceLowerBound - pieceUpperBound
-				pieces.locks[pieceIndex].Unlock()
+				pieces.listDLocks[pieceIndex].Lock()
+				pieces.pieces[pieceIndex].downloaded = nil
+				pieces.listDLocks[pieceIndex].Unlock()
 			}
 			msg := message.StatDiff{NotStarted: ns, Downloaded: sai}
 			if validated {
