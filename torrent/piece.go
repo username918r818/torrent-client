@@ -31,8 +31,6 @@ type Piece struct {
 }
 
 type PieceArray struct {
-	sync.Mutex      // locks on updating stats
-	stats           [6]int64
 	pieces          []Piece
 	pieceLength     int64
 	lastPieceLength int64
@@ -50,7 +48,6 @@ func Validate(data []byte, hash [20]byte) bool {
 }
 
 func InitPieceArray(totalBytes, pieceLength int64) (a PieceArray) {
-	a.stats[NotStarted] = totalBytes
 	arrLength := totalBytes / pieceLength
 	a.lastPieceLength = totalBytes % pieceLength
 	if a.lastPieceLength > 0 {
@@ -116,15 +113,11 @@ func StartPieceWorker(ctx context.Context, pieces *PieceArray, tf *TorrentFile, 
 				sai += pieceLowerBound - pieceUpperBound
 				pieces.locks[pieceIndex].Unlock()
 			}
-
-			pieces.Lock()
-			pieces.stats[NotStarted] += ns
-			pieces.stats[Downloaded] += sai
+			msg := message.StatDiff{NotStarted: ns, Downloaded: sai}
 			if validated {
-				pieces.stats[Validated] += pieceUpperBound - pieceLowerBound
+				msg[Validated] = pieceUpperBound - pieceLowerBound
 			}
-			ch.PostStatsChannel <- pieces.stats
-			pieces.Unlock()
+			ch.PostStatsChannel <- msg
 
 		case ready := (<-ch.FileWorkerReady):
 			slog.Info("Piece worker: received new ready")
@@ -189,10 +182,8 @@ func StartPieceWorker(ctx context.Context, pieces *PieceArray, tf *TorrentFile, 
 			msg.File = f
 			msg.Callback = ch.CallBack
 
-			pieces.Lock()
-			pieces.stats[Saving] += length
-			pieces.Unlock()
-
+			msgStats := message.StatDiff{Saving: length}
+			ch.PostStatsChannel <- msgStats
 			ch.FileWorkerToSave <- msg
 
 		case isSaved, ok := (<-ch.FileWorkerIsSaved):
@@ -200,22 +191,17 @@ func StartPieceWorker(ctx context.Context, pieces *PieceArray, tf *TorrentFile, 
 			if !ok {
 				break
 			}
+			msgStats := message.StatDiff{Saving: -isSaved.Length}
 			if !isSaved.IsSaved {
-				pieces.Lock()
-				pieces.stats[Saving] -= isSaved.Length
-				ch.PostStatsChannel <- pieces.stats
-				pieces.Unlock()
+				ch.PostStatsChannel <- msgStats
 				pieces.listTLock.Lock()
 				pieces.toSave = util.InsertRange(pieces.toSave, isSaved.Offset, isSaved.Offset+isSaved.Length)
 				pieces.listTLock.Unlock()
 				break
 			}
 
-			pieces.Lock()
-			pieces.stats[Saving] -= isSaved.Length
-			pieces.stats[Saved] += isSaved.Length
-			ch.PostStatsChannel <- pieces.stats
-			pieces.Unlock()
+			msgStats[Saved] += isSaved.Length
+			ch.PostStatsChannel <- msgStats
 
 			pieces.listSLock.Lock()
 			pieces.Saved = util.InsertRange(pieces.Saved, isSaved.Offset, isSaved.Offset+isSaved.Length)

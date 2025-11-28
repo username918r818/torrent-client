@@ -45,6 +45,6 @@ type PeerError struct {
 	Error error
 }
 
-type Stats = [6]int64
+type StatDiff = [6]int64
 
 type Peers = [][6]byte

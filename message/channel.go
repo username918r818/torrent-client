@@ -8,7 +8,7 @@ type SupervisorChannels struct {
 
 type TrackerChannels struct {
 	SendPeers       chan<- Peers
-	GetStatsChannel <-chan Stats
+	GetStatsChannel <-chan StatDiff
 }
 
 type PeerChannels struct {
@@ -18,7 +18,7 @@ type PeerChannels struct {
 }
 
 type PieceChannels struct {
-	PostStatsChannel  chan<- Stats
+	PostStatsChannel  chan<- StatDiff
 	PeerHasDownloaded <-chan Block
 	FileWorkerReady   <-chan Ready
 	FileWorkerIsSaved <-chan IsRangeSaved // need initialize with new torrent
@@ -47,7 +47,7 @@ func GetChannels() (SupervisorChannels, TrackerChannels, PeerChannels, PieceChan
 	sup.GetPeers = peerListCh
 	tra.SendPeers = peerListCh
 
-	stats := make(chan Stats)
+	stats := make(chan StatDiff)
 	tra.GetStatsChannel = stats
 	piece.PostStatsChannel = stats
 

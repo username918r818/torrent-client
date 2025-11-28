@@ -37,8 +37,11 @@ type TrackerSession struct {
 
 func StartWorkerTracker(ctx context.Context, ts *TrackerSession, ch message.TrackerChannels) {
 	ts.Event = EventStarted
+	var stats [6]int64
+	for _, v := range ts.TorrentFile.Files {
+		stats[NotStarted] += v.Length
 
-	tmpCounter := int64(-1)
+	}
 
 	for {
 		timer := time.NewTimer(time.Duration(ts.Interval) * time.Second)
@@ -46,17 +49,17 @@ func StartWorkerTracker(ctx context.Context, ts *TrackerSession, ch message.Trac
 		case <-timer.C:
 			ts.proceed(ch)
 
-		case stats := <-ch.GetStatsChannel:
+		case statDiff := <-ch.GetStatsChannel:
+			for i, v := range statDiff {
+				stats[i] += v
+			}
 			ts.Left = stats[NotStarted] + stats[Downloaded]
 			ts.Downloaded = stats[Validated] + stats[Saving] + stats[Saved]
 			if ts.Left == 0 {
 				ts.Event = EventCompleted
 			}
-			if stats[Downloaded]*10000/(stats[Downloaded]+stats[NotStarted]+ts.Downloaded) > int64(tmpCounter) || true {
-				tmpCounter = stats[Downloaded] * 10000 / (stats[Downloaded] + stats[NotStarted] + ts.Downloaded)
-				// slog.Info(fmt.Sprintf("%v, downloaded: %v, left: %v", stats[Downloaded]*10000/(stats[Downloaded]+stats[NotStarted]), stats[Downloaded], stats[NotStarted]))
-				slog.Info(fmt.Sprintf("0: %v, 1: %v, 2: %v, 3: %v, 4: %v, 5: %v", stats[0], stats[1], stats[2], stats[3], stats[4], stats[5]))
-			}
+			slog.Info(fmt.Sprintf("0: %v, 1: %v, 2: %v, 3: %v, 4: %v, 5: %v", stats[0], stats[1], stats[2], stats[3], stats[4], stats[5]))
+
 		case <-ctx.Done():
 			return
 		}
