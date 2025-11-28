@@ -59,6 +59,7 @@ func InitPieceArray(totalBytes, pieceLength int64) (a PieceArray) {
 	}
 	a.pieces = make([]Piece, arrLength)
 	a.dataLocks = make([]sync.Mutex, arrLength)
+	a.listDLocks = make([]sync.Mutex, arrLength)
 	a.pieceLength = pieceLength
 	return
 }
