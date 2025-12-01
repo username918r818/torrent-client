@@ -3,13 +3,18 @@ package torrent
 import (
 	// "context"
 	"crypto/sha1"
+	"os"
+	"sync"
+	"sync/atomic"
+
 	// "errors"
 	// "log/slog"
 	// "os"
 	// "strings"
 	// "sync"
 	// "github.com/username918r818/torrent-client/message"
-	// "github.com/username918r818/torrent-client/util"
+	"github.com/username918r818/torrent-client/file"
+	"github.com/username918r818/torrent-client/util"
 )
 
 // type PieceState int
@@ -43,6 +48,66 @@ import (
 // }
 
 // var ErrValidatedPiece = errors.New("piece already validated")
+
+type Piece struct {
+	Index int64
+	Data  []byte
+}
+
+type PieceStatDiff struct {
+	ToDownload int64
+	Validated  int64
+	Saving     int64
+	Saved      int64
+}
+
+type toDeleteEnum = int
+
+const (
+	toDelete toDeleteEnum = iota
+	deleting
+	toRestore
+)
+
+type pieceSession struct {
+	listDlock  sync.Mutex // lock for downloaded
+	listTSLock sync.Mutex // lock for toSave
+	ListSLock  sync.Mutex // lock for saving
+	ListSDLock sync.Mutex // lock for saved
+
+	downloaded, toSave, saving, saved *util.RangeSet
+
+	pieceMutex   sync.Mutex         // lock for pieceMutexes
+	pieceMutexes map[int]sync.Mutex // need pieceMutex be acquired for use
+	pieces       map[int][]byte
+
+	readyFileWorkers atomic.Int64
+
+	fileMutex       sync.Mutex
+	rangeFile       util.RangeSet
+	fileRange       map[string]util.Range
+	filePath        map[string][]string // clear after alloc
+	filePointer     map[string]*os.File
+	filesToAllocate map[int]struct{}
+	filesToDelete   map[int]toDeleteEnum
+	ch              Channels
+}
+
+type Channels struct {
+	FileReady   <-chan struct{}
+	Save        chan<- file.WTask
+	Delete      chan<- file.DTask
+	Alloc       chan<- file.ATask
+	Piece       <-chan Piece
+	PieceReport chan<- util.Pair[int, bool]
+	Report      chan<- StatDiff
+	ToCreate    <-chan map[string]util.Range
+	ToDelete    <-chan map[string]util.Range
+	ToDownload  <-chan []int
+	saved       <-chan file.WReport
+	deleted     <-chan file.DReport
+	allocated   <-chan file.AReport
+}
 
 func Validate(data []byte, hash [20]byte) bool {
 	return sha1.Sum(data) == hash
