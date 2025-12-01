@@ -1,4 +1,4 @@
-package torrent
+package tracker
 
 import (
 	"context"
@@ -27,7 +27,8 @@ type StatDiff struct {
 }
 
 type trackerSession struct {
-	tf       TorrentFile
+	infoHash [20]byte
+	announce string
 	port     int
 	peerId   string
 	interval int
@@ -41,10 +42,11 @@ type trackerSession struct {
 	peerCh chan<- [][6]byte
 }
 
-func Init(ctx context.Context, torrentFile TorrentFile, port int, peerCh chan<- [][6]byte, statsCh <-chan StatDiff) {
+func Init(ctx context.Context, infoHash [20]byte, announce string, port int, peerCh chan<- [][6]byte, statsCh <-chan StatDiff) {
 
 	ts := trackerSession{}
-	ts.tf = torrentFile
+	ts.infoHash = infoHash
+	ts.announce = announce
 	ts.port = port
 	ts.peerId = "-UT0001-" + randomDigits(12)
 	ts.interval = 1
@@ -76,8 +78,8 @@ func (ts *trackerSession) start(ctx context.Context) {
 }
 
 func (ts *trackerSession) proceed() {
-	url := ts.tf.Announce
-	infoHash := util.EncodeUrl(ts.tf.InfoHash[:])
+	url := ts.announce
+	infoHash := util.EncodeUrl(ts.infoHash[:])
 	sep := "?"
 	if strings.Contains(url, "?") {
 		sep = "&"
