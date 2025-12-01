@@ -1,5 +1,7 @@
 package util
 
+import "errors"
+
 type Range = Pair[int64, int64]
 
 type RangeSet interface {
@@ -8,7 +10,7 @@ type RangeSet interface {
 	FindIntersections(Range) []Range
 	Insert(Range)
 	Extract(Range)
-	Find(int64) *Range
+	Find(int64) (Range, error)
 }
 
 type naiveImpl struct {
@@ -53,8 +55,7 @@ func (n *naiveImpl) FindIntersections(r Range) []Range {
 
 func (n *naiveImpl) Insert(r Range) {
 	n.Extract(r)
-
-	InsertRange(n.list, r.First, r.Second)
+	n.list = InsertRange(n.list, r.First, r.Second)
 }
 
 func (n *naiveImpl) Extract(r Range) {
@@ -83,6 +84,9 @@ func (n *naiveImpl) Extract(r Range) {
 				tmp = tmp.Next
 				tmp.Prev = cur.Prev
 				tmp.Prev.Next = tmp
+				if cur == n.list {
+					n.list = tmp
+				}
 				continue
 			}
 		}
@@ -90,14 +94,14 @@ func (n *naiveImpl) Extract(r Range) {
 	}
 }
 
-func (n *naiveImpl) Find(i int64) *Range {
+func (n *naiveImpl) Find(i int64) (Range, error) {
 	tmp := n.list
 
 	for tmp != nil {
 		if tmp.Value.Second > i {
-			return &Range{tmp.Value.First, tmp.Value.Second}
+			return Range{tmp.Value.First, tmp.Value.Second}, nil
 		}
 		tmp = tmp.Next
 	}
-	return nil
+	return Range{}, errors.New("not found")
 }
