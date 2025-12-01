@@ -10,7 +10,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/username918r818/torrent-client/message"
 	"github.com/username918r818/torrent-client/util"
 )
 
@@ -28,10 +27,10 @@ type StatDiff struct {
 }
 
 type trackerSession struct {
-	tf     TorrentFile
-	port   int
-	peerId string
-	int    int
+	tf       TorrentFile
+	port     int
+	peerId   string
+	interval int
 
 	event      int
 	uploaded   int64
@@ -42,25 +41,25 @@ type trackerSession struct {
 	peerCh chan<- [][6]byte
 }
 
-func StartWorkerTracker(ctx context.Context, ts *trackerSession, ch message.TrackerChannels) {
-
-	ts.peerId = "-UT0001-" + randomDigits(12)
-
-}
-
 func Init(ctx context.Context, torrentFile TorrentFile, port int, peerCh chan<- [][6]byte, statsCh <-chan StatDiff) {
 
 	ts := trackerSession{}
-	ts.peerId = "-UT0001-" + randomDigits(12)
-
 	ts.tf = torrentFile
 	ts.port = port
+	ts.peerId = "-UT0001-" + randomDigits(12)
+	ts.interval = 1
+	ts.event = eventStarted
+
+	in := make(chan [][6]byte)
+	go peerHelper(ctx, in, peerCh)
+
+	ts.peerCh = in
 
 	go ts.start(ctx)
 }
 
 func (ts *trackerSession) start(ctx context.Context) {
-	timer := time.NewTimer(time.Duration(ts.int) * time.Second)
+	timer := time.NewTimer(time.Duration(ts.interval) * time.Second)
 	for {
 		select {
 		case sd := <-ts.stats:
@@ -71,7 +70,7 @@ func (ts *trackerSession) start(ctx context.Context) {
 			return
 		case <-timer.C:
 			ts.proceed()
-			timer.Reset(time.Duration(ts.int) * time.Second)
+			timer.Reset(time.Duration(ts.interval) * time.Second)
 		}
 	}
 }
@@ -104,26 +103,26 @@ func (ts *trackerSession) proceed() {
 
 	resp, err := http.Get(url)
 	if err != nil {
-		ts.int = 60
+		ts.interval = 60
 		slog.Error("tracker: can't make request: " + err.Error())
 	}
 
 	defer resp.Body.Close()
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		ts.int = 60
+		ts.interval = 60
 		slog.Error("tracker: can't read body: " + err.Error())
 		return
 	}
 	be, err := util.Decode(body)
 
 	if err != nil {
-		ts.int = 60
+		ts.interval = 60
 		slog.Error("tracker: can't decode bencode: %v" + err.Error())
 		return
 	}
 
-	ts.int = int((*be.Dict)["interval"].Int)
+	ts.interval = int((*be.Dict)["interval"].Int)
 
 	peersBin := (*be.Dict)["peers"].Str
 	peers := make([][6]byte, len(peersBin)/6)
@@ -143,4 +142,25 @@ func randomDigits(n int) string {
 		buf[i] = '0' + (b[0] % 10)
 	}
 	return string(buf)
+}
+
+func peerHelper(ctx context.Context, in <-chan [][6]byte, out chan<- [][6]byte) {
+	cur := make([][6]byte, 0)
+	unique := make(map[[6]byte]struct{})
+	for {
+		select {
+		case new := <-in:
+			for _, v := range new {
+				if _, ok := unique[v]; !ok {
+					cur = append(cur, v)
+					unique[v] = struct{}{}
+				}
+			}
+		case out <- cur:
+			cur = make([][6]byte, 0)
+			unique = make(map[[6]byte]struct{})
+		case <-ctx.Done():
+			return
+		}
+	}
 }
