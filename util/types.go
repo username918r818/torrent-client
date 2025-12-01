@@ -1,7 +1,8 @@
 package util
 
-type Pair[T any] struct {
-	First, Second T
+type Pair[F, S any] struct {
+	First F
+	Second S
 }
 
 type List[T comparable] struct {
@@ -9,17 +10,19 @@ type List[T comparable] struct {
 	Value      T
 }
 
-func InsertRange[T int | int64 | uint64](list *List[Pair[T]], a, b T) *List[Pair[T]] {
+type Range = Pair[int64, int64]
+
+func InsertRange[T int | int64 | uint64](list *List[Pair[T, T]], a, b T) *List[Pair[T, T]] {
 	if a > b {
 		a, b = b, a
 	}
 
 	if list == nil {
-		return &List[Pair[T]]{nil, nil, Pair[T]{a, b}}
+		return &List[Pair[T, T]]{nil, nil, Pair[T, T]{a, b}}
 	}
 
 	if list.Value.First > b {
-		newHead := &List[Pair[T]]{nil, list, Pair[T]{a, b}}
+		newHead := &List[Pair[T, T]]{nil, list, Pair[T, T]{a, b}}
 		list.Prev = newHead
 		return newHead
 	}
@@ -41,7 +44,7 @@ func InsertRange[T int | int64 | uint64](list *List[Pair[T]], a, b T) *List[Pair
 		}
 	}
 
-	newNode := &List[Pair[T]]{node, node.Next, Pair[T]{a, b}}
+	newNode := &List[Pair[T, T]]{node, node.Next, Pair[T, T]{a, b}}
 
 	if node.Value.Second == a {
 		node.Value.Second = b
@@ -65,7 +68,7 @@ func InsertRange[T int | int64 | uint64](list *List[Pair[T]], a, b T) *List[Pair
 	return list
 }
 
-func RemoveRange[T int | int64 | uint64](list *List[Pair[T]], a, b T) *List[Pair[T]] {
+func RemoveRange[T int | int64 | uint64](list *List[Pair[T, T]], a, b T) *List[Pair[T, T]] {
 	if a > b {
 		a, b = b, a
 	}
@@ -113,7 +116,7 @@ func RemoveRange[T int | int64 | uint64](list *List[Pair[T]], a, b T) *List[Pair
 		return list
 	}
 
-	next := &List[Pair[T]]{node, node.Next, Pair[T]{b, node.Value.Second}}
+	next := &List[Pair[T, T]]{node, node.Next, Pair[T, T]{b, node.Value.Second}}
 	if node.Next != nil {
 		node.Next.Prev = next
 	}
@@ -122,7 +125,7 @@ func RemoveRange[T int | int64 | uint64](list *List[Pair[T]], a, b T) *List[Pair
 	return list
 }
 
-func Contains[T int | int64 | uint64](list *List[Pair[T]], a, b T) bool {
+func Contains[T int | int64 | uint64](list *List[Pair[T, T]], a, b T) bool {
 	if a > b {
 		a, b = b, a
 	}
