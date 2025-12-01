@@ -1,286 +1,286 @@
 package torrent
 
-import (
-	"context"
-	"errors"
-	"fmt"
-	"log/slog"
-	"sync"
-	"time"
+// import (
+// 	"context"
+// 	"errors"
+// 	"fmt"
+// 	"log/slog"
+// 	"sync"
+// 	"time"
 
-	"github.com/username918r818/torrent-client/file"
-	"github.com/username918r818/torrent-client/message"
-	"github.com/username918r818/torrent-client/util"
-)
+// 	"github.com/username918r818/torrent-client/file"
+// 	"github.com/username918r818/torrent-client/message"
+// 	"github.com/username918r818/torrent-client/util"
+// )
 
-type peerState = int
+// type peerState = int
 
-const (
-	PeerNotFound peerState = iota
-	PeerCouldBeAdded
-	PeerDead
-	PeerChoking
-	PeerDownloading
-	PeerWaiting
-)
+// const (
+// 	PeerNotFound peerState = iota
+// 	PeerCouldBeAdded
+// 	PeerDead
+// 	PeerChoking
+// 	PeerDownloading
+// 	PeerWaiting
+// )
 
-func createBitField(pieces int) []byte {
-	length := pieces / 8
-	if pieces%8 != 0 {
-		length++
-	}
-	return make([]byte, length)
-}
+// func createBitField(pieces int) []byte {
+// 	length := pieces / 8
+// 	if pieces%8 != 0 {
+// 		length++
+// 	}
+// 	return make([]byte, length)
+// }
 
-func setPiece(piece int, bitfield []byte) {
-	byteIndex, bitIndex := piece/8, piece%8
-	bitfield[byteIndex] |= (1 << (7 - bitIndex))
-}
+// func setPiece(piece int, bitfield []byte) {
+// 	byteIndex, bitIndex := piece/8, piece%8
+// 	bitfield[byteIndex] |= (1 << (7 - bitIndex))
+// }
 
-func clearPiece(piece int, bitfield []byte) {
-	byteIndex, bitIndex := piece/8, piece%8
-	bitfield[byteIndex] &^= (1 << (7 - bitIndex))
-}
+// func clearPiece(piece int, bitfield []byte) {
+// 	byteIndex, bitIndex := piece/8, piece%8
+// 	bitfield[byteIndex] &^= (1 << (7 - bitIndex))
+// }
 
-func getPiece(piece int, bitfield []byte) bool {
-	byteIndex, bitIndex := piece/8, piece%8
-	return (bitfield[byteIndex] & (1 << (7 - bitIndex))) != 0
-}
+// func getPiece(piece int, bitfield []byte) bool {
+// 	byteIndex, bitIndex := piece/8, piece%8
+// 	return (bitfield[byteIndex] & (1 << (7 - bitIndex))) != 0
+// }
 
-func findTask(pieceArray *PieceArray, bitfield []byte, length int, tasksPeers map[int][6]byte, peerTasks map[[6]byte]message.DownloadRange, peer [6]byte) (message.DownloadRange, error) {
-	var msg message.DownloadRange
-	msg.PieceLength = pieceArray.pieceLength
-	for i, v := range pieceArray.pieces {
-		if _, ok := tasksPeers[i]; !ok && (v.state == NotStarted || v.state == InProgress) && getPiece(i, bitfield) {
-			curLength := msg.PieceLength
-			if i == len(pieceArray.pieces)-1 {
-				curLength = pieceArray.lastPieceLength
-				slog.Info("supervisor: gaved last piece task")
-			}
-			switch msg.Length {
-			case 0:
-				msg.Offset = int64(i) * msg.PieceLength
-				msg.Length = curLength
-				tasksPeers[i] = peer
-			default:
-				msg.Length += curLength
-				if msg.Length >= int64(length) {
-					tasksPeers[i] = peer
-					peerTasks[peer] = msg
-					return msg, nil
-				}
+// func findTask(pieceArray *PieceArray, bitfield []byte, length int, tasksPeers map[int][6]byte, peerTasks map[[6]byte]message.DownloadRange, peer [6]byte) (message.DownloadRange, error) {
+// 	var msg message.DownloadRange
+// 	msg.PieceLength = pieceArray.pieceLength
+// 	for i, v := range pieceArray.pieces {
+// 		if _, ok := tasksPeers[i]; !ok && (v.state == NotStarted || v.state == InProgress) && getPiece(i, bitfield) {
+// 			curLength := msg.PieceLength
+// 			if i == len(pieceArray.pieces)-1 {
+// 				curLength = pieceArray.lastPieceLength
+// 				slog.Info("supervisor: gaved last piece task")
+// 			}
+// 			switch msg.Length {
+// 			case 0:
+// 				msg.Offset = int64(i) * msg.PieceLength
+// 				msg.Length = curLength
+// 				tasksPeers[i] = peer
+// 			default:
+// 				msg.Length += curLength
+// 				if msg.Length >= int64(length) {
+// 					tasksPeers[i] = peer
+// 					peerTasks[peer] = msg
+// 					return msg, nil
+// 				}
 
-			}
-		} else {
-			if msg.Length > 0 {
-				peerTasks[peer] = msg
-				return msg, nil
-			}
-		}
-	}
-	if msg.Length > 0 {
-		peerTasks[peer] = msg
-		return msg, nil
-	}
+// 			}
+// 		} else {
+// 			if msg.Length > 0 {
+// 				peerTasks[peer] = msg
+// 				return msg, nil
+// 			}
+// 		}
+// 	}
+// 	if msg.Length > 0 {
+// 		peerTasks[peer] = msg
+// 		return msg, nil
+// 	}
 
-	return msg, errors.New("supervisor: task not found")
-}
+// 	return msg, errors.New("supervisor: task not found")
+// }
 
-func newPeer(ctx context.Context, peerCh message.PeerChannels, peer [6]byte, pieceArray *PieceArray, infoHash, peerId [20]byte, wgPeers *sync.WaitGroup, ch *message.SupervisorChannels, peerState *map[[6]byte]peerState) {
-	newCh := make(chan message.DownloadRange, 1)
-	newPeerCh := peerCh
-	newPeerCh.ToDownload = newCh
-	ch.ToPeerWorkerToDownload[peer] = newCh
-	wgPeers.Go(func() {
-		StartPeerWorker(ctx, newPeerCh, pieceArray, peer, infoHash, peerId)
-	})
-	(*peerState)[peer] = PeerChoking
-}
+// func newPeer(ctx context.Context, peerCh message.PeerChannels, peer [6]byte, pieceArray *PieceArray, infoHash, peerId [20]byte, wgPeers *sync.WaitGroup, ch *message.SupervisorChannels, peerState *map[[6]byte]peerState) {
+// 	newCh := make(chan message.DownloadRange, 1)
+// 	newPeerCh := peerCh
+// 	newPeerCh.ToDownload = newCh
+// 	ch.ToPeerWorkerToDownload[peer] = newCh
+// 	wgPeers.Go(func() {
+// 		StartPeerWorker(ctx, newPeerCh, pieceArray, peer, infoHash, peerId)
+// 	})
+// 	(*peerState)[peer] = PeerChoking
+// }
 
-func queuePeer(peer [6]byte, state map[[6]byte]peerState, ch chan<- message.Peers) {
-	state[peer] = PeerNotFound
-	go func() {
-		time.Sleep(20 * time.Second)
-		ch <- [][6]byte{peer}
-	}()
-}
+// func queuePeer(peer [6]byte, state map[[6]byte]peerState, ch chan<- message.Peers) {
+// 	state[peer] = PeerNotFound
+// 	go func() {
+// 		time.Sleep(20 * time.Second)
+// 		ch <- [][6]byte{peer}
+// 	}()
+// }
 
-func deadPeer(peer [6]byte, ch *message.SupervisorChannels, peerTasks map[[6]byte]message.DownloadRange, taskPeers map[int][6]byte) {
-	if newCh, ok := ch.ToPeerWorkerToDownload[peer]; ok {
-		close(newCh)
-		delete(ch.ToPeerWorkerToDownload, peer)
-	}
-	resetTasks(peer, peerTasks, taskPeers)
-}
+// func deadPeer(peer [6]byte, ch *message.SupervisorChannels, peerTasks map[[6]byte]message.DownloadRange, taskPeers map[int][6]byte) {
+// 	if newCh, ok := ch.ToPeerWorkerToDownload[peer]; ok {
+// 		close(newCh)
+// 		delete(ch.ToPeerWorkerToDownload, peer)
+// 	}
+// 	resetTasks(peer, peerTasks, taskPeers)
+// }
 
-func resetTasks(peer [6]byte, peerTasks map[[6]byte]message.DownloadRange, taskPeers map[int][6]byte) {
-	task, ok := peerTasks[peer]
-	if !ok {
-		return
-	}
-	delete(peerTasks, peer)
-	firstIndex := task.Offset / task.PieceLength
-	lastIndex := (task.Length + task.Offset) / task.Length
-	for firstIndex <= lastIndex {
-		if taskPeers[int(firstIndex)] == peer {
-			delete(taskPeers, int(firstIndex))
-		}
-		firstIndex++
-	}
-}
+// func resetTasks(peer [6]byte, peerTasks map[[6]byte]message.DownloadRange, taskPeers map[int][6]byte) {
+// 	task, ok := peerTasks[peer]
+// 	if !ok {
+// 		return
+// 	}
+// 	delete(peerTasks, peer)
+// 	firstIndex := task.Offset / task.PieceLength
+// 	lastIndex := (task.Length + task.Offset) / task.Length
+// 	for firstIndex <= lastIndex {
+// 		if taskPeers[int(firstIndex)] == peer {
+// 			delete(taskPeers, int(firstIndex))
+// 		}
+// 		firstIndex++
+// 	}
+// }
 
-func StartSupervisor(ctx context.Context, torrentFile TorrentFile, port int) {
-	ch, traCh, peerCh, pieceCh, fileCh := message.GetChannels()
-	ch.ToPeerWorkerToDownload = make(map[[6]byte]chan<- message.DownloadRange)
+// func StartSupervisor(ctx context.Context, torrentFile TorrentFile, port int) {
+// 	ch, traCh, peerCh, pieceCh, fileCh := message.GetChannels()
+// 	ch.ToPeerWorkerToDownload = make(map[[6]byte]chan<- message.DownloadRange)
 
-	trackerSession := &TrackerSession{}
-	peerId := "-UT0001-" + randomDigits(12)
-	copy(trackerSession.PeerId[:], peerId)
+// 	trackerSession := &TrackerSession{}
+// 	peerId := "-UT0001-" + randomDigits(12)
+// 	copy(trackerSession.PeerId[:], peerId)
 
-	trackerSession.TorrentFile = &torrentFile
-	trackerSession.Port = port
-	trackerSession.Left = torrentFile.Files[0].Length
+// 	trackerSession.TorrentFile = &torrentFile
+// 	trackerSession.Port = port
+// 	trackerSession.Left = torrentFile.Files[0].Length
 
-	var wgTracker, wgFiles, wgPiece, wgPeers sync.WaitGroup
-	wgTracker.Go(func() { StartWorkerTracker(ctx, trackerSession, traCh) })
+// 	var wgTracker, wgFiles, wgPiece, wgPeers sync.WaitGroup
+// 	wgTracker.Go(func() { StartWorkerTracker(ctx, trackerSession, traCh) })
 
-	for range 2 {
-		wgFiles.Go(func() { file.StartFileWorker(ctx, fileCh) })
-	}
+// 	for range 2 {
+// 		wgFiles.Go(func() { file.StartFileWorker(ctx, fileCh) })
+// 	}
 
-	var totalBytes int64
+// 	var totalBytes int64
 
-	fileMap, err := file.Alloc(torrentFile.Files)
-	if err != nil {
-		slog.ErrorContext(ctx, "Supervisor: "+err.Error())
-		return
-	}
+// 	fileMap, err := file.Alloc(torrentFile.Files)
+// 	if err != nil {
+// 		slog.ErrorContext(ctx, "Supervisor: "+err.Error())
+// 		return
+// 	}
 
-	for _, v := range torrentFile.Files {
-		totalBytes += v.Length
+// 	for _, v := range torrentFile.Files {
+// 		totalBytes += v.Length
 
-	}
+// 	}
 
-	pieceFile := make(chan message.IsRangeSaved)
-	pieceCh.FileWorkerIsSaved = pieceFile
-	pieceCh.CallBack = pieceFile
+// 	pieceFile := make(chan message.IsRangeSaved)
+// 	pieceCh.FileWorkerIsSaved = pieceFile
+// 	pieceCh.CallBack = pieceFile
 
-	pieceArray := InitPieceArray(totalBytes, torrentFile.PieceLength)
+// 	pieceArray := InitPieceArray(totalBytes, torrentFile.PieceLength)
 
-	for range 20 {
-		wgPiece.Go(func() { StartPieceWorker(ctx, &pieceArray, &torrentFile, fileMap, pieceCh) })
-	}
+// 	for range 20 {
+// 		wgPiece.Go(func() { StartPieceWorker(ctx, &pieceArray, &torrentFile, fileMap, pieceCh) })
+// 	}
 
-	peerState := make(map[[6]byte]peerState)
-	tasksPeers := make(map[int][6]byte)
-	peerTasks := make(map[[6]byte]message.DownloadRange)
-	peerBitFields := make(map[[6]byte][]byte)
-	var peerQueue *util.List[[6]byte]
+// 	peerState := make(map[[6]byte]peerState)
+// 	tasksPeers := make(map[int][6]byte)
+// 	peerTasks := make(map[[6]byte]message.DownloadRange)
+// 	peerBitFields := make(map[[6]byte][]byte)
+// 	var peerQueue *util.List[[6]byte]
 
-	totalPeers := 5
-	availablePeers := totalPeers
+// 	totalPeers := 5
+// 	availablePeers := totalPeers
 
-	for {
-		select {
-		case msg := <-ch.FromPeerWorker:
-			// slog.Info(fmt.Sprintf("Supervisor: received new message with type %d", msg.Id))
-			switch msg.Id {
-			case IdDead:
-				slog.Info("Supervisor: new dead")
-				peerState[msg.PeerId] = PeerDead
-				deadPeer(msg.PeerId, &ch, peerTasks, tasksPeers)
-				availablePeers++
-				if peerQueue != nil {
-					availablePeers--
-					newPeer(ctx, peerCh, peerQueue.Value, &pieceArray, torrentFile.InfoHash, trackerSession.PeerId, &wgPeers, &ch, &peerState)
-					peerQueue = peerQueue.Next
-					if peerQueue != nil {
-						peerQueue.Prev = nil
-					}
-				}
-				queuePeer(msg.PeerId, peerState, traCh.SendPeers)
-				slog.Info(fmt.Sprintf("Supervisor: peers: %d", totalPeers-availablePeers))
+// 	for {
+// 		select {
+// 		case msg := <-ch.FromPeerWorker:
+// 			// slog.Info(fmt.Sprintf("Supervisor: received new message with type %d", msg.Id))
+// 			switch msg.Id {
+// 			case IdDead:
+// 				slog.Info("Supervisor: new dead")
+// 				peerState[msg.PeerId] = PeerDead
+// 				deadPeer(msg.PeerId, &ch, peerTasks, tasksPeers)
+// 				availablePeers++
+// 				if peerQueue != nil {
+// 					availablePeers--
+// 					newPeer(ctx, peerCh, peerQueue.Value, &pieceArray, torrentFile.InfoHash, trackerSession.PeerId, &wgPeers, &ch, &peerState)
+// 					peerQueue = peerQueue.Next
+// 					if peerQueue != nil {
+// 						peerQueue.Prev = nil
+// 					}
+// 				}
+// 				queuePeer(msg.PeerId, peerState, traCh.SendPeers)
+// 				slog.Info(fmt.Sprintf("Supervisor: peers: %d", totalPeers-availablePeers))
 
-			case IdBitfield:
-				if _, ok := peerBitFields[msg.PeerId]; !ok {
-					peerBitFields[msg.PeerId] = createBitField(len(pieceArray.pieces))
-				}
-				copy(peerBitFields[msg.PeerId], msg.Payload)
-				if peerState[msg.PeerId] == PeerWaiting {
-					task, err := findTask(&pieceArray, peerBitFields[msg.PeerId], int(pieceArray.pieceLength), tasksPeers, peerTasks, msg.PeerId)
-					if err == nil {
-						peerState[msg.PeerId] = PeerDownloading
-						ch.ToPeerWorkerToDownload[msg.PeerId] <- task
-					}
-				}
+// 			case IdBitfield:
+// 				if _, ok := peerBitFields[msg.PeerId]; !ok {
+// 					peerBitFields[msg.PeerId] = createBitField(len(pieceArray.pieces))
+// 				}
+// 				copy(peerBitFields[msg.PeerId], msg.Payload)
+// 				if peerState[msg.PeerId] == PeerWaiting {
+// 					task, err := findTask(&pieceArray, peerBitFields[msg.PeerId], int(pieceArray.pieceLength), tasksPeers, peerTasks, msg.PeerId)
+// 					if err == nil {
+// 						peerState[msg.PeerId] = PeerDownloading
+// 						ch.ToPeerWorkerToDownload[msg.PeerId] <- task
+// 					}
+// 				}
 
-			case IdHave:
-				if _, ok := peerBitFields[msg.PeerId]; !ok {
-					peerBitFields[msg.PeerId] = createBitField(len(pieceArray.pieces))
-				}
-				setPiece(int(msg.Payload[0]), peerBitFields[msg.PeerId])
+// 			case IdHave:
+// 				if _, ok := peerBitFields[msg.PeerId]; !ok {
+// 					peerBitFields[msg.PeerId] = createBitField(len(pieceArray.pieces))
+// 				}
+// 				setPiece(int(msg.Payload[0]), peerBitFields[msg.PeerId])
 
-				if peerState[msg.PeerId] == PeerWaiting {
-					peerState[msg.PeerId] = PeerDownloading
-					newTask := message.DownloadRange{PieceLength: pieceArray.pieceLength, Offset: int64(msg.Payload[0]) * pieceArray.pieceLength, Length: pieceArray.pieceLength}
-					peerTasks[msg.PeerId] = newTask
-					tasksPeers[int(msg.Payload[0])] = msg.PeerId
-					ch.ToPeerWorkerToDownload[msg.PeerId] <- newTask
-				}
+// 				if peerState[msg.PeerId] == PeerWaiting {
+// 					peerState[msg.PeerId] = PeerDownloading
+// 					newTask := message.DownloadRange{PieceLength: pieceArray.pieceLength, Offset: int64(msg.Payload[0]) * pieceArray.pieceLength, Length: pieceArray.pieceLength}
+// 					peerTasks[msg.PeerId] = newTask
+// 					tasksPeers[int(msg.Payload[0])] = msg.PeerId
+// 					ch.ToPeerWorkerToDownload[msg.PeerId] <- newTask
+// 				}
 
-			case IdChoke:
-				peerState[msg.PeerId] = PeerChoking
-				resetTasks(msg.PeerId, peerTasks, tasksPeers)
+// 			case IdChoke:
+// 				peerState[msg.PeerId] = PeerChoking
+// 				resetTasks(msg.PeerId, peerTasks, tasksPeers)
 
-			case IdUnchoke:
-				slog.Info("Supervisor: unchoke")
-				peerState[msg.PeerId] = PeerWaiting
-				if peerState[msg.PeerId] == PeerWaiting {
-					task, err := findTask(&pieceArray, peerBitFields[msg.PeerId], int(pieceArray.pieceLength), tasksPeers, peerTasks, msg.PeerId)
-					if err == nil {
-						peerState[msg.PeerId] = PeerDownloading
-						ch.ToPeerWorkerToDownload[msg.PeerId] <- task
-					}
-				}
+// 			case IdUnchoke:
+// 				slog.Info("Supervisor: unchoke")
+// 				peerState[msg.PeerId] = PeerWaiting
+// 				if peerState[msg.PeerId] == PeerWaiting {
+// 					task, err := findTask(&pieceArray, peerBitFields[msg.PeerId], int(pieceArray.pieceLength), tasksPeers, peerTasks, msg.PeerId)
+// 					if err == nil {
+// 						peerState[msg.PeerId] = PeerDownloading
+// 						ch.ToPeerWorkerToDownload[msg.PeerId] <- task
+// 					}
+// 				}
 
-			case IdReady:
-				// slog.Info("Supervisor: isReady")
-				peerState[msg.PeerId] = PeerWaiting
-				if peerState[msg.PeerId] == PeerWaiting {
-					resetTasks(msg.PeerId, peerTasks, tasksPeers)
-					task, err := findTask(&pieceArray, peerBitFields[msg.PeerId], int(pieceArray.pieceLength), tasksPeers, peerTasks, msg.PeerId)
-					if err == nil {
-						peerState[msg.PeerId] = PeerDownloading
-						ch.ToPeerWorkerToDownload[msg.PeerId] <- task
-					}
-				}
-			}
+// 			case IdReady:
+// 				// slog.Info("Supervisor: isReady")
+// 				peerState[msg.PeerId] = PeerWaiting
+// 				if peerState[msg.PeerId] == PeerWaiting {
+// 					resetTasks(msg.PeerId, peerTasks, tasksPeers)
+// 					task, err := findTask(&pieceArray, peerBitFields[msg.PeerId], int(pieceArray.pieceLength), tasksPeers, peerTasks, msg.PeerId)
+// 					if err == nil {
+// 						peerState[msg.PeerId] = PeerDownloading
+// 						ch.ToPeerWorkerToDownload[msg.PeerId] <- task
+// 					}
+// 				}
+// 			}
 
-		case p := <-ch.GetPeers:
-			// slog.Info("Supervisor: received peers")
-			for _, i := range p {
-				if peerState[i] == PeerNotFound {
-					if availablePeers > 0 {
-						availablePeers--
-						newPeer(ctx, peerCh, i, &pieceArray, torrentFile.InfoHash, trackerSession.PeerId, &wgPeers, &ch, &peerState)
-					} else {
-						if peerQueue == nil {
-							peerQueue = &util.List[[6]byte]{Prev: nil, Next: nil, Value: i}
-							continue
-						}
-						node := peerQueue
-						for node.Next != nil {
-							node = node.Next
-						}
-						tmp := &util.List[[6]byte]{Prev: node, Next: nil, Value: i}
-						node.Next = tmp
-					}
-				}
-			}
+// 		case p := <-ch.GetPeers:
+// 			// slog.Info("Supervisor: received peers")
+// 			for _, i := range p {
+// 				if peerState[i] == PeerNotFound {
+// 					if availablePeers > 0 {
+// 						availablePeers--
+// 						newPeer(ctx, peerCh, i, &pieceArray, torrentFile.InfoHash, trackerSession.PeerId, &wgPeers, &ch, &peerState)
+// 					} else {
+// 						if peerQueue == nil {
+// 							peerQueue = &util.List[[6]byte]{Prev: nil, Next: nil, Value: i}
+// 							continue
+// 						}
+// 						node := peerQueue
+// 						for node.Next != nil {
+// 							node = node.Next
+// 						}
+// 						tmp := &util.List[[6]byte]{Prev: node, Next: nil, Value: i}
+// 						node.Next = tmp
+// 					}
+// 				}
+// 			}
 
-		case <-ctx.Done():
-			return
-		}
-		// slog.Info("Supervisor: loop ended")
-	}
-}
+// 		case <-ctx.Done():
+// 			return
+// 		}
+// 		// slog.Info("Supervisor: loop ended")
+// 	}
+// }
