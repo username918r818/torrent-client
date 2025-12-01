@@ -33,7 +33,7 @@ func StartFileWorker(ctx context.Context, ch message.FileChannels) {
 				index += msg.PieceLength
 			}
 
-			err := WriteChunk(msg.File, msg.FileOffset, data)
+			err := writeChunk(msg.File, msg.FileOffset, data)
 
 			if err != nil {
 				slog.Error("File Worker: " + err.Error())

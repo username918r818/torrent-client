@@ -1,15 +1,13 @@
-package file_test
+package file
 
 import (
 	"bytes"
 	"os"
 	"path/filepath"
 	"testing"
-
-	"github.com/username918r818/torrent-client/file"
 )
 
-func TestAlloc(t *testing.T) {
+func Testalloc(t *testing.T) {
 	tempDir := t.TempDir()
 
 	t.Run("successful file creation", func(t *testing.T) {
@@ -22,7 +20,7 @@ func TestAlloc(t *testing.T) {
 			{Length: 1024, Path: []string{tempDir, "file1.txt"}},
 		}
 
-		_, err := file.Alloc(files)
+		_, err := alloc(files)
 		if err != nil {
 			t.Fatalf("expected no error, got %v", err)
 		}
@@ -40,12 +38,12 @@ func TestAlloc(t *testing.T) {
 			{Length: 1024, Path: []string{}},
 		}
 
-		_, err := file.Alloc(files)
+		_, err := alloc(files)
 		if err == nil {
 			t.Fatal("expected error, but got none")
 		}
-		if err.Error() != "Alloc: file.Path == 0" {
-			t.Fatalf("expected error message 'Alloc: file.Path == 0', got %v", err)
+		if err.Error() != "alloc: Path == 0" {
+			t.Fatalf("expected error message 'alloc: Path == 0', got %v", err)
 		}
 	})
 
@@ -57,7 +55,7 @@ func TestAlloc(t *testing.T) {
 			{Length: 1024, Path: []string{"/invalid:dir", "file1.txt"}},
 		}
 
-		_, err := file.Alloc(files)
+		_, err := alloc(files)
 		if err == nil {
 			t.Fatal("expected error, but got none")
 		}
@@ -74,7 +72,7 @@ func TestAlloc(t *testing.T) {
 			{Length: 1024, Path: []string{nestedDir, "file1.txt"}},
 		}
 
-		_, err := file.Alloc(files)
+		_, err := alloc(files)
 		if err != nil {
 			t.Fatalf("expected no error, but got %v", err)
 		}
@@ -109,7 +107,7 @@ func TestAlloc(t *testing.T) {
 				{Length: 1024, Path: []string{nestedDirs[3].Path, nestedDirs[3].File}},
 			}
 
-			_, err := file.Alloc(files)
+			_, err := alloc(files)
 			if err != nil {
 				t.Fatalf("expected no error, but got %v", err)
 			}
@@ -140,7 +138,7 @@ func TestWriteChunk(t *testing.T) {
 		data := []byte("Hello, world!")
 		offset := int64(0)
 
-		err = file.WriteChunk(f, offset, data)
+		err = writeChunk(f, offset, data)
 		if err != nil {
 			t.Fatalf("expected no error, but got %v", err)
 		}
@@ -167,7 +165,7 @@ func TestWriteChunk(t *testing.T) {
 		f.Close()
 
 		data := []byte("Hello, world!")
-		err = file.WriteChunk(f, 0, data)
+		err = writeChunk(f, 0, data)
 		if err == nil {
 			t.Fatal("expected error, but got none")
 		}
