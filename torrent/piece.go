@@ -35,11 +35,11 @@ type PieceArray struct {
 	pieces          []Piece
 	pieceLength     int64
 	lastPieceLength int64
-	dataLocks       []sync.Mutex                 // for writing into pieces
-	listDLocks      []sync.Mutex                 // locks for downloaded
-	listTLock       sync.Mutex                   // locks for toSave
+	dataLocks       []sync.Mutex                        // for writing into pieces
+	listDLocks      []sync.Mutex                        // locks for downloaded
+	listTLock       sync.Mutex                          // locks for toSave
 	toSave          *util.List[util.Pair[int64, int64]] // used to know ranges in piece indicies of downloaded but not saved yet data
-	listSLock       sync.Mutex                   // locks for Saved
+	listSLock       sync.Mutex                          // locks for Saved
 	Saved           *util.List[util.Pair[int64, int64]] // used to know ranges of saved data
 }
 

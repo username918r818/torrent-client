@@ -1,7 +1,7 @@
 package util
 
 type Pair[F, S any] struct {
-	First F
+	First  F
 	Second S
 }
 
