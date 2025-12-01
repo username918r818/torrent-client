@@ -74,7 +74,9 @@ func Init(ctx context.Context, n int) FileChannels {
 	inner.wTask = w
 	inner.dTask = d
 
-	start(ctx, inner)
+	for range n {
+		go start(ctx, inner)
+	}
 
 	return outer
 }
