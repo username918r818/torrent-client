@@ -2,47 +2,139 @@ package file
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
-	"time"
-
-	"github.com/username918r818/torrent-client/message"
+	"os"
 )
 
-func StartFileWorker(ctx context.Context, ch message.FileChannels) {
-	ch.ReadyChannel <- true
+type ATask struct {
+	Callback chan<- AReport
+	files    []struct {
+		Length int64
+		Path   []string
+	}
+}
+
+type WTask struct {
+	Callback chan<- WReport
+	Id       any
+	File     *os.File
+	Offset   int64
+	Length   int64
+	Data     []byte
+}
+type DTask struct {
+	Callback chan<- DReport
+	Id       any
+	File     *os.File
+}
+
+type AReport struct {
+	Ok    bool
+	Files map[string]*os.File
+}
+type WReport struct {
+	Ok bool
+	Id any
+}
+type DReport struct {
+	Ok bool
+	Id any
+}
+
+type FileChannels struct {
+	Ready <-chan struct{}
+	ATask chan<- ATask
+	WTask chan<- WTask
+	DTask chan<- DTask
+}
+
+type channels struct {
+	ready chan<- struct{}
+	aTask <-chan ATask
+	wTask <-chan WTask
+	dTask <-chan DTask
+}
+
+func Init(ctx context.Context, n int) FileChannels {
+	r := make(chan struct{}, n)
+	a := make(chan ATask)
+	w := make(chan WTask)
+	d := make(chan DTask)
+
+	outer := FileChannels{}
+	inner := channels{}
+
+	outer.Ready = r
+	outer.ATask = a
+	outer.WTask = w
+	outer.DTask = d
+
+	inner.ready = r
+	inner.aTask = a
+	inner.wTask = w
+	inner.dTask = d
+
+	for range n {
+		go start(ctx, inner)
+	}
+
+	return outer
+}
+
+func start(ctx context.Context, ch channels) {
+	ch.ready <- struct{}{}
 	for {
 		select {
-		case msg := <-ch.ToSaveChannel:
-			if msg.Length == -1 {
-				time.Sleep(time.Second * 10)
-				ch.ReadyChannel <- true
-				break
-			}
-			slog.Info("File worker: received msg: " + fmt.Sprintf("%d", msg.Length))
-			data := make([]byte, msg.Length)
-			var index int64
-			pieceIndex := msg.Offset / msg.PieceLength
-			startPiece := msg.Offset % msg.PieceLength
-			copy(data, msg.Pieces[pieceIndex][startPiece:])
-			index = msg.PieceLength - startPiece
+		case msg := <-ch.wTask:
+			slog.Debug("file worker: received wTask")
 
-			for index < msg.Length {
-				pieceIndex++
-				copy(data[index:], msg.Pieces[pieceIndex])
-				index += msg.PieceLength
-			}
-
-			err := WriteChunk(msg.File, msg.FileOffset, data)
-
+			err := writeChunk(msg.File, msg.Offset, msg.Data)
+			r := WReport{}
+			r.Id = msg.Id
 			if err != nil {
-				slog.Error("File Worker: " + err.Error())
-				msg.Callback <- message.IsRangeSaved{}
+				slog.Error("file Worker: " + err.Error())
+				r.Ok = false
+				msg.Callback <- r
 			} else {
-				msg.Callback <- message.IsRangeSaved{IsSaved: true, Offset: msg.Offset, Length: msg.Length}
+				r.Ok = true
+				msg.Callback <- r
 			}
 
-			ch.ReadyChannel <- true
+			ch.ready <- struct{}{}
+
+		case msg := <-ch.aTask:
+			slog.Debug("file worker: received aTask")
+
+			fileMap, err := alloc(msg.files)
+			r := AReport{}
+			r.Files = fileMap
+			if err != nil {
+				slog.Error("file Worker: " + err.Error())
+				r.Ok = false
+				msg.Callback <- r
+			} else {
+				r.Ok = true
+				msg.Callback <- r
+			}
+
+			ch.ready <- struct{}{}
+
+		case msg := <-ch.dTask:
+			slog.Debug("file worker: received dTask")
+
+			err := delete(msg.File)
+			r := DReport{}
+			r.Id = msg.Id
+			if err != nil {
+				slog.Error("file Worker: " + err.Error())
+				r.Ok = false
+				msg.Callback <- r
+			} else {
+				r.Ok = true
+				msg.Callback <- r
+			}
+
+			ch.ready <- struct{}{}
 		case <-ctx.Done():
 			return
 		}

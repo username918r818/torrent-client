@@ -31,6 +31,5 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	go torrent.StartSupervisor(ctx, torrentFile, 1488)
-	select {}
+	_, _ = ctx, torrentFile
 }
