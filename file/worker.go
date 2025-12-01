@@ -8,8 +8,10 @@ import (
 
 type ATask struct {
 	Callback chan<- AReport
-	Path     string
-	Length   int64
+	files    []struct {
+		Length int64
+		Path   []string
+	}
 }
 
 type WTask struct {
@@ -27,8 +29,8 @@ type DTask struct {
 }
 
 type AReport struct {
-	Ok   bool
-	Path string
+	Ok    bool
+	Files map[string]*os.File
 }
 type WReport struct {
 	Ok bool
@@ -86,6 +88,40 @@ func start(ctx context.Context, ch channels) {
 
 			err := writeChunk(msg.File, msg.Offset, msg.Data)
 			r := WReport{}
+			r.Id = msg.Id
+			if err != nil {
+				slog.Error("file Worker: " + err.Error())
+				r.Ok = false
+				msg.Callback <- r
+			} else {
+				r.Ok = true
+				msg.Callback <- r
+			}
+
+			ch.ready <- struct{}{}
+
+		case msg := <-ch.aTask:
+			slog.Debug("file worker: received aTask")
+
+			fileMap, err := alloc(msg.files)
+			r := AReport{}
+			r.Files = fileMap
+			if err != nil {
+				slog.Error("file Worker: " + err.Error())
+				r.Ok = false
+				msg.Callback <- r
+			} else {
+				r.Ok = true
+				msg.Callback <- r
+			}
+
+			ch.ready <- struct{}{}
+
+		case msg := <-ch.dTask:
+			slog.Debug("file worker: received dTask")
+
+			err := delete(msg.File)
+			r := DReport{}
 			r.Id = msg.Id
 			if err != nil {
 				slog.Error("file Worker: " + err.Error())
