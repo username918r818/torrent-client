@@ -16,7 +16,7 @@ func alloc(files []struct {
 	m := make(map[string]*os.File, len(files))
 	for _, f := range files {
 		if len(f.Path) == 0 {
-			return nil, errors.New("alloc: file.Path == 0")
+			return nil, errors.New("alloc: Path == 0")
 		}
 		var filePath string
 		if len(f.Path) > 1 {

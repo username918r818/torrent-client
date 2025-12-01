@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-func Testalloc(t *testing.T) {
+func TestAlloc(t *testing.T) {
 	tempDir := t.TempDir()
 
 	t.Run("successful file creation", func(t *testing.T) {
