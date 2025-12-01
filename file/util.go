@@ -50,3 +50,9 @@ func writeChunk(file *os.File, offset int64, data []byte) error {
 	_, err := file.WriteAt(data, offset)
 	return err
 }
+
+func delete(f *os.File) error {
+	name := f.Name()
+	_ = f.Close()
+	return os.Remove(name)
+}
