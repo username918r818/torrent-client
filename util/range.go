@@ -1,21 +1,17 @@
 package util
 
-import "sync"
-
 type Range = Pair[int64, int64]
 
 type RangeSet interface {
-	Lock()
-	Unlock()
 	Contains(Range) bool
 	IsEmpty(Range) bool
+	FindIntersections(Range) []Range
 	Insert(Range)
 	Extract(Range)
 	Find(int64) *Range
 }
 
 type naiveImpl struct {
-	sync.Mutex
 	list *List[Range]
 }
 
@@ -38,6 +34,21 @@ func (n *naiveImpl) IsEmpty(r Range) bool {
 	}
 
 	return true
+}
+
+func (n *naiveImpl) FindIntersections(r Range) []Range {
+	rs := make([]Range, 0, 16)
+
+	tmp := n.list
+
+	for tmp != nil {
+		if tmp.Value.First < r.Second && r.First < tmp.Value.Second {
+			rs = append(rs, tmp.Value)
+		}
+		tmp = tmp.Next
+	}
+
+	return rs
 }
 
 func (n *naiveImpl) Insert(r Range) {
