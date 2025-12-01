@@ -267,8 +267,6 @@ func TestRemoveRange(t *testing.T) {
 			t.Errorf("Expected {9, 15}, got {%v, %v}", list.Value.First, list.Value.Second)
 			// return
 		}
-
-		list = list.Next
 	})
 
 	t.Run("remove range that matches exactly behind", func(t *testing.T) {

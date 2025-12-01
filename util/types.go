@@ -10,8 +10,6 @@ type List[T comparable] struct {
 	Value      T
 }
 
-type Range = Pair[int64, int64]
-
 func InsertRange[T int | int64 | uint64](list *List[Pair[T, T]], a, b T) *List[Pair[T, T]] {
 	if a > b {
 		a, b = b, a
