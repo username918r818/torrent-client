@@ -1,7 +1,8 @@
-package torrent
+package piece
 
 import (
 	// "context"
+	"context"
 	"crypto/sha1"
 	"os"
 	"sync"
@@ -54,7 +55,7 @@ type Piece struct {
 	Data  []byte
 }
 
-type PieceStatDiff struct {
+type StatDiff struct {
 	ToDownload int64
 	Validated  int64
 	Saving     int64
@@ -91,6 +92,7 @@ type pieceSession struct {
 	filesToAllocate map[int]struct{}
 	filesToDelete   map[int]toDeleteEnum
 	ch              Channels
+	cb              cbChannels
 }
 
 type Channels struct {
@@ -109,8 +111,27 @@ type Channels struct {
 	allocated   <-chan file.AReport
 }
 
+type cbChannels struct {
+	saved     chan<- file.WReport
+	deleted   chan<- file.DReport
+	allocated chan<- file.AReport
+}
+
 func Validate(data []byte, hash [20]byte) bool {
 	return sha1.Sum(data) == hash
+}
+
+func Init(ctx context.Context, amount int, ch Channels) {
+	ps := pieceSession{}
+	sc := make(chan file.WReport)
+	dc := make(chan file.DReport)
+	ac := make(chan file.AReport)
+	ch.saved = sc
+	ch.deleted = dc
+	ch.allocated = ac
+	ps.cb.saved = sc
+	ps.cb.deleted = dc
+	ps.cb.allocated = ac
 }
 
 // func InitPieceArray(totalBytes, pieceLength int64) (a PieceArray) {
