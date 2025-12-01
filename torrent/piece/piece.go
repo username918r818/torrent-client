@@ -238,7 +238,7 @@ func (ps *pieceSession) setSaved(report file.WReport) {
 func (ps *pieceSession) setToSave(report file.WReport) {}
 
 // receives index and adds it to Downloaded, also report
-func (ps *pieceSession) validate(index int, piece, hash []byte) bool
+func (ps *pieceSession) validate(index int, piece, hash []byte) bool { return false }
 
 // adds file and inserts ranges to toSave range, if deleting, set to restore, else put in queue to allocate, also toDownload(...)
 func (ps *pieceSession) addFile(t NewFileTask) {}
@@ -259,10 +259,10 @@ func (ps *pieceSession) tryToDelete() {}
 func (ps *pieceSession) delete(f string) {}
 
 // checks if it has ready file workers and ranges and file is allocated then save(range)
-func (ps *pieceSession) tryToSave()
+func (ps *pieceSession) tryToSave() {}
 
 // sends indicies of pieces to download
-func (ps *pieceSession) toDownload(toDownload []int)
+func (ps *pieceSession) toDownload(toDownload []int) {}
 
 // creates helper stats foroutine
 func helperStats(ctx context.Context, in <-chan StatDiff, out chan<- StatDiff) {
