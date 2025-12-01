@@ -39,7 +39,7 @@ func (n *naiveImpl) IsEmpty(r Range) bool {
 }
 
 func (n *naiveImpl) FindIntersections(r Range) []Range {
-	rs := make([]Range, 0, 16)
+	rs := make([]Range, 0)
 
 	tmp := n.list
 
