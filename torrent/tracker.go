@@ -5,7 +5,6 @@ import (
 	"crypto/rand"
 	"fmt"
 	"io"
-	"log"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -16,104 +15,115 @@ import (
 )
 
 const (
-	EventNone = iota
-	EventStarted
-	EventStopped
-	EventCompleted
+	eventNone = iota
+	eventStarted
+	eventStopped
+	eventCompleted
 )
 
-type TrackerSession struct {
-	TorrentFile *TorrentFile
-	Port        int
-	PeerId      [20]byte
-	TrackerId   string
-	Interval    int
-
-	Event      int
+type StatDiff struct {
 	Uploaded   int64
 	Downloaded int64
 	Left       int64
 }
 
-func StartWorkerTracker(ctx context.Context, ts *TrackerSession, ch message.TrackerChannels) {
-	ts.Event = EventStarted
-	var stats [6]int64
-	for _, v := range ts.TorrentFile.Files {
-		stats[NotStarted] += v.Length
+type trackerSession struct {
+	tf     TorrentFile
+	port   int
+	peerId string
+	int    int
 
-	}
+	event      int
+	uploaded   int64
+	downloaded int64
+	left       int64
 
+	stats  <-chan StatDiff
+	peerCh chan<- [][6]byte
+}
+
+func StartWorkerTracker(ctx context.Context, ts *trackerSession, ch message.TrackerChannels) {
+
+	ts.peerId = "-UT0001-" + randomDigits(12)
+
+}
+
+func Init(ctx context.Context, torrentFile TorrentFile, port int, peerCh chan<- [][6]byte, statsCh <-chan StatDiff) {
+
+	ts := trackerSession{}
+	ts.peerId = "-UT0001-" + randomDigits(12)
+
+	ts.tf = torrentFile
+	ts.port = port
+
+	go ts.start(ctx)
+}
+
+func (ts *trackerSession) start(ctx context.Context) {
+	timer := time.NewTimer(time.Duration(ts.int) * time.Second)
 	for {
-		timer := time.NewTimer(time.Duration(ts.Interval) * time.Second)
 		select {
-		case <-timer.C:
-			ts.proceed(ch)
-
-		case statDiff := <-ch.GetStatsChannel:
-			for i, v := range statDiff {
-				stats[i] += v
-			}
-			ts.Left = stats[NotStarted] + stats[Downloaded]
-			ts.Downloaded = stats[Validated] + stats[Saving] + stats[Saved]
-			if ts.Left == 0 {
-				ts.Event = EventCompleted
-			}
-			slog.Info(fmt.Sprintf("0: %v, 1: %v, 2: %v, 3: %v, 4: %v, 5: %v", stats[0], stats[1], stats[2], stats[3], stats[4], stats[5]))
-
+		case sd := <-ts.stats:
+			ts.uploaded += sd.Uploaded
+			ts.downloaded += sd.Downloaded
+			ts.left += sd.Left
 		case <-ctx.Done():
 			return
+		case <-timer.C:
+			ts.proceed()
+			timer.Reset(time.Duration(ts.int) * time.Second)
 		}
 	}
 }
 
-func (ts *TrackerSession) proceed(ch message.TrackerChannels) {
-	url := ts.TorrentFile.Announce
-	infoHash := util.EncodeUrl(ts.TorrentFile.InfoHash[:])
+func (ts *trackerSession) proceed() {
+	url := ts.tf.Announce
+	infoHash := util.EncodeUrl(ts.tf.InfoHash[:])
 	sep := "?"
 	if strings.Contains(url, "?") {
 		sep = "&"
 	}
 	url += fmt.Sprintf("%sinfo_hash=%v", sep, infoHash)
-	peer_id := util.EncodeUrl(ts.PeerId[:])
+	peer_id := util.EncodeUrl([]byte(ts.peerId))
 	url += fmt.Sprintf("&peer_id=%v", peer_id)
 
-	url += fmt.Sprintf("&port=%v", ts.Port)
-	url += fmt.Sprintf("&uploaded=%v", ts.Uploaded)
-	url += fmt.Sprintf("&downloaded=%v", ts.Downloaded)
-	url += fmt.Sprintf("&left=%v", ts.Left)
+	url += fmt.Sprintf("&port=%v", ts.port)
+	url += fmt.Sprintf("&uploaded=%v", ts.uploaded)
+	url += fmt.Sprintf("&downloaded=%v", ts.downloaded)
+	url += fmt.Sprintf("&left=%v", ts.left)
 	url += fmt.Sprintf("&compact=%v", 1)
-	switch ts.Event {
-	case EventStarted:
+	switch ts.event {
+	case eventStarted:
 		url += "&event=started"
-	case EventCompleted:
+	case eventCompleted:
 		url += "&event=completed"
-	case EventStopped:
+	case eventStopped:
 		url += "&event=stopped"
 	}
-	ts.Event = EventNone
+	ts.event = eventNone
 
 	resp, err := http.Get(url)
 	if err != nil {
-		ts.Interval = 60
+		ts.int = 60
+		slog.Error("tracker: can't make request: " + err.Error())
 	}
 
 	defer resp.Body.Close()
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		ts.Interval = 60
-		log.Printf("can't read body: %v", err)
+		ts.int = 60
+		slog.Error("tracker: can't read body: " + err.Error())
+		return
 	}
 	be, err := util.Decode(body)
 
 	if err != nil {
-		ts.Interval = 60
-		log.Printf("can't decode bencode: %v", err)
+		ts.int = 60
+		slog.Error("tracker: can't decode bencode: %v" + err.Error())
+		return
 	}
 
-	fmt.Println(be.String())
-	fmt.Println(string((*be.Dict)["peers"].Str))
-
-	ts.Interval = int((*be.Dict)["interval"].Int)
+	ts.int = int((*be.Dict)["interval"].Int)
 
 	peersBin := (*be.Dict)["peers"].Str
 	peers := make([][6]byte, len(peersBin)/6)
@@ -121,7 +131,7 @@ func (ts *TrackerSession) proceed(ch message.TrackerChannels) {
 		copy(peers[i][:], peersBin[i*6:(i+1)*6])
 	}
 
-	ch.SendPeers <- peers
+	ts.peerCh <- peers
 
 }
 
