@@ -110,10 +110,9 @@ func deadPeer(peer [6]byte, ch *message.SupervisorChannels, peerTasks map[[6]byt
 		close(newCh)
 		delete(ch.ToPeerWorkerToDownload, peer)
 	}
-	resetTasks(peer, peerTasks, taskPeers)
 }
 
-func resetTasks(peer [6]byte, peerTasks map[[6]byte]message.DownloadRange, taskPeers map[int][6]byte) {
+func resetTasks(pieceArray *PieceArray, peer [6]byte, peerTasks map[[6]byte]message.DownloadRange, taskPeers map[int][6]byte) {
 	task, ok := peerTasks[peer]
 	if !ok {
 		return
@@ -124,6 +123,7 @@ func resetTasks(peer [6]byte, peerTasks map[[6]byte]message.DownloadRange, taskP
 	for firstIndex <= lastIndex {
 		if taskPeers[int(firstIndex)] == peer {
 			delete(taskPeers, int(firstIndex))
+			DeletePiece(int(firstIndex), pieceArray)
 		}
 		firstIndex++
 	}
@@ -189,6 +189,7 @@ func StartSupervisor(ctx context.Context, torrentFile TorrentFile, port int) {
 				slog.Info("Supervisor: new dead")
 				peerState[msg.PeerId] = PeerDead
 				deadPeer(msg.PeerId, &ch, peerTasks, tasksPeers)
+				resetTasks(&pieceArray, msg.PeerId, peerTasks, tasksPeers)
 				availablePeers++
 				if peerQueue != nil {
 					availablePeers--
@@ -230,7 +231,7 @@ func StartSupervisor(ctx context.Context, torrentFile TorrentFile, port int) {
 
 			case IdChoke:
 				peerState[msg.PeerId] = PeerChoking
-				resetTasks(msg.PeerId, peerTasks, tasksPeers)
+				resetTasks(&pieceArray, msg.PeerId, peerTasks, tasksPeers)
 
 			case IdUnchoke:
 				slog.Info("Supervisor: unchoke")
@@ -246,6 +247,7 @@ func StartSupervisor(ctx context.Context, torrentFile TorrentFile, port int) {
 			case IdReady:
 				// slog.Info("Supervisor: isReady")
 				peerState[msg.PeerId] = PeerWaiting
+				resetTasks(&pieceArray, msg.PeerId, peerTasks, tasksPeers)
 				if peerState[msg.PeerId] == PeerWaiting {
 					task, err := findTask(&pieceArray, peerBitFields[msg.PeerId], int(pieceArray.pieceLength), tasksPeers, peerTasks, msg.PeerId)
 					if err == nil {

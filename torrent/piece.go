@@ -26,17 +26,18 @@ const (
 )
 
 type Piece struct {
-	state PieceState
-	data  []byte
+	state      PieceState
+	data       []byte
+	downloaded *util.List[util.Pair[int64]]
 }
 
 type PieceArray struct {
 	pieces          []Piece
+	validLock       sync.Mutex
+	validPieces     map[int64][]byte
 	pieceLength     int64
 	lastPieceLength int64
 	locks           []sync.Mutex
-	listDLock       sync.Mutex                   // locks for downloaded
-	downloaded      *util.List[util.Pair[int64]] // used to know ranges of downloaded but may be saved yet data
 	listTLock       sync.Mutex                   // locks for toSave
 	toSave          *util.List[util.Pair[int64]] // used to know ranges of downloaded but not saved yet data
 	listSLock       sync.Mutex                   // locks for Saved
@@ -56,6 +57,7 @@ func InitPieceArray(totalBytes, pieceLength int64) (a PieceArray) {
 		a.lastPieceLength = pieceLength
 	}
 	a.pieces = make([]Piece, arrLength)
+	a.validPieces = make(map[int64][]byte)
 	a.locks = make([]sync.Mutex, arrLength)
 	a.pieceLength = pieceLength
 	return
@@ -80,7 +82,19 @@ func UpdatePiece(pieceIndex int, a *PieceArray) ([]byte, error) {
 	return a.pieces[pieceIndex].data, nil
 }
 
+func DeletePiece(pieceIndex int, a *PieceArray) {
+	a.locks[pieceIndex].Lock()
+	defer a.locks[pieceIndex].Unlock()
+	if a.pieces[pieceIndex].state == InProgress {
+		a.pieces[pieceIndex].state = NotStarted
+	}
+	a.pieces[pieceIndex].data = nil
+	a.pieces[pieceIndex].downloaded = nil
+
+}
+
 func StartPieceWorker(ctx context.Context, pieces *PieceArray, tf *TorrentFile, fileMap map[string]*os.File, ch message.PieceChannels) {
+
 	for {
 		select {
 		case newBlock := <-ch.PeerHasDownloaded:
@@ -92,32 +106,32 @@ func StartPieceWorker(ctx context.Context, pieces *PieceArray, tf *TorrentFile, 
 				pieceUpperBound = pieceLowerBound + pieces.lastPieceLength
 			}
 
-			pieces.listDLock.Lock()
-			pieces.downloaded = util.InsertRange(pieces.downloaded, newBlock.Offset, newBlock.Offset+newBlock.Length)
-			checkRange := util.Contains(pieces.downloaded, pieceLowerBound, pieceUpperBound)
-			pieces.listDLock.Unlock()
+			pieces.locks[pieceIndex].Lock()
+			pieces.pieces[pieceIndex].downloaded = util.InsertRange(pieces.pieces[pieceIndex].downloaded, newBlock.Offset, newBlock.Offset+newBlock.Length)
+			checkRange := util.Contains(pieces.pieces[pieceIndex].downloaded, pieceLowerBound, pieceUpperBound)
+			pieces.locks[pieceIndex].Unlock()
 
-			ns, sai := -newBlock.Length, newBlock.Length
-			validated := false
 			if checkRange {
+				pieceCopy := make([]byte, len(pieces.pieces[pieceIndex].data))
 				pieces.locks[pieceIndex].Lock()
-				if Validate(pieces.pieces[pieceIndex].data, tf.Pieces[pieceIndex]) {
-					validated = true
+				copy(pieceCopy, pieces.pieces[pieceIndex].data)
+				if Validate(pieceCopy, tf.Pieces[pieceIndex]) {
 					pieces.pieces[pieceIndex].state = Validated
+					pieces.locks[pieceIndex].Unlock()
 					pieces.listTLock.Lock()
 					pieces.toSave = util.InsertRange(pieces.toSave, pieceLowerBound, pieceUpperBound)
 					pieces.listTLock.Unlock()
+					pieces.validLock.Lock()
+					pieces.validPieces[pieceIndex] = pieceCopy
+					pieces.validLock.Unlock()
+					msg := message.StatDiff{Validated: pieceUpperBound - pieceLowerBound}
+					ch.PostStatsChannel <- msg
 				} else {
-					ns += pieceUpperBound - pieceLowerBound
+					pieces.locks[pieceIndex].Unlock()
+					DeletePiece(int(pieceIndex), pieces)
 				}
-				sai += pieceLowerBound - pieceUpperBound
-				pieces.locks[pieceIndex].Unlock()
+
 			}
-			msg := message.StatDiff{NotStarted: ns, Downloaded: sai}
-			if validated {
-				msg[Validated] = pieceUpperBound - pieceLowerBound
-			}
-			ch.PostStatsChannel <- msg
 
 		case ready := (<-ch.FileWorkerReady):
 			slog.Info("Piece worker: received new ready")
@@ -169,7 +183,9 @@ func StartPieceWorker(ctx context.Context, pieces *PieceArray, tf *TorrentFile, 
 
 			dataToSend := make([][]byte, lastPiece+1)
 			for i := firstPiece; i <= lastPiece; i++ {
-				dataToSend[i] = pieces.pieces[i].data
+				pieces.validLock.Lock()
+				dataToSend[i] = pieces.validPieces[i]
+				pieces.validLock.Unlock()
 			}
 
 			msg := message.SaveRange{}
@@ -177,7 +193,7 @@ func StartPieceWorker(ctx context.Context, pieces *PieceArray, tf *TorrentFile, 
 			msg.Pieces = dataToSend
 			msg.PieceLength = pieces.pieceLength
 			msg.Offset = totalOffset
-			msg.FileOffset = totalOffset - fileOffsetInFile
+			msg.FileOffset = fileOffsetInFile
 			msg.Length = length
 			msg.File = f
 			msg.Callback = ch.CallBack
@@ -208,11 +224,14 @@ func StartPieceWorker(ctx context.Context, pieces *PieceArray, tf *TorrentFile, 
 			pieces.listSLock.Unlock()
 
 			firstPiece := isSaved.Offset / pieces.pieceLength
-			lastPiece := (isSaved.Offset + isSaved.Length) / pieces.pieceLength
+			lastPiece := (isSaved.Offset + isSaved.Length - 1) / pieces.pieceLength
 
 			for i := firstPiece; i <= lastPiece; i++ {
 				if i == firstPiece || i == lastPiece {
 					lw, up := i*pieces.pieceLength, (i+1)*pieces.pieceLength
+					if int(i) == len(pieces.pieces)-1 {
+						up = i*pieces.pieceLength + pieces.lastPieceLength
+					}
 					pieces.listSLock.Lock()
 					checkRange := util.Contains(pieces.Saved, lw, up)
 					pieces.listSLock.Unlock()
@@ -222,6 +241,9 @@ func StartPieceWorker(ctx context.Context, pieces *PieceArray, tf *TorrentFile, 
 				}
 				pieces.pieces[i].state = Saved
 				pieces.pieces[i].data = nil
+				pieces.validLock.Lock()
+				delete(pieces.validPieces, i)
+				pieces.validLock.Unlock()
 			}
 
 		case <-ctx.Done():
