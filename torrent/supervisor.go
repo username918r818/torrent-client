@@ -51,7 +51,7 @@ func findTask(pieceArray *PieceArray, bitfield []byte, length int, tasksPeers ma
 	var msg message.DownloadRange
 	msg.PieceLength = pieceArray.pieceLength
 	for i, v := range pieceArray.pieces {
-		if _, ok := tasksPeers[i]; !ok && (v.state == NotStarted) && getPiece(i, bitfield) {
+		if _, ok := tasksPeers[i]; !ok && v.state == NotStarted && getPiece(i, bitfield) {
 			curLength := msg.PieceLength
 			if i == len(pieceArray.pieces)-1 {
 				curLength = pieceArray.lastPieceLength
@@ -119,7 +119,7 @@ func resetTasks(pieceArray *PieceArray, peer [6]byte, peerTasks map[[6]byte]mess
 	}
 	delete(peerTasks, peer)
 	firstIndex := task.Offset / task.PieceLength
-	lastIndex := (task.Length + task.Offset) / task.Length
+	lastIndex := (task.Offset + task.Length - 1) / task.PieceLength
 	for firstIndex <= lastIndex {
 		if taskPeers[int(firstIndex)] == peer {
 			delete(taskPeers, int(firstIndex))
@@ -127,6 +127,43 @@ func resetTasks(pieceArray *PieceArray, peer [6]byte, peerTasks map[[6]byte]mess
 		}
 		firstIndex++
 	}
+}
+
+func redistributeTasksToWaiting(
+	pieceArray *PieceArray,
+	peerState map[[6]byte]peerState,
+	peerBitFields map[[6]byte][]byte,
+	tasksPeers map[int][6]byte,
+	peerTasks map[[6]byte]message.DownloadRange,
+	toDownloadChannels map[[6]byte]chan<- message.DownloadRange,
+) int {
+	redistributed := 0
+
+	var waitingPeers [][6]byte
+	for peer, state := range peerState {
+		if state == PeerWaiting {
+			waitingPeers = append(waitingPeers, peer)
+		}
+	}
+
+	if len(waitingPeers) == 0 {
+		return 0
+	}
+
+	for _, peer := range waitingPeers {
+		bitfield := peerBitFields[peer]
+
+		task, err := findTask(pieceArray, bitfield, int(pieceArray.pieceLength), tasksPeers, peerTasks, peer)
+		if err == nil {
+			if ch, ok := toDownloadChannels[peer]; ok {
+				peerState[peer] = PeerDownloading
+				ch <- task
+				redistributed++
+			}
+		}
+	}
+
+	return redistributed
 }
 
 func StartSupervisor(ctx context.Context, torrentFile TorrentFile, port int) {
@@ -177,7 +214,7 @@ func StartSupervisor(ctx context.Context, torrentFile TorrentFile, port int) {
 	peerBitFields := make(map[[6]byte][]byte)
 	var peerQueue *util.List[[6]byte]
 
-	totalPeers := 5
+	totalPeers := 20
 	availablePeers := totalPeers
 
 	for {
@@ -190,6 +227,13 @@ func StartSupervisor(ctx context.Context, torrentFile TorrentFile, port int) {
 				peerState[msg.PeerId] = PeerDead
 				deadPeer(msg.PeerId, &ch, peerTasks, tasksPeers)
 				resetTasks(&pieceArray, msg.PeerId, peerTasks, tasksPeers)
+
+				// Перераспределяем задачи ожидающим пирам
+				redistributed := redistributeTasksToWaiting(&pieceArray, peerState, peerBitFields, tasksPeers, peerTasks, ch.ToPeerWorkerToDownload)
+				if redistributed > 0 {
+					slog.Info(fmt.Sprintf("Supervisor: redistributed %d tasks from dead peer", redistributed))
+				}
+
 				availablePeers++
 				if peerQueue != nil {
 					availablePeers--
@@ -247,7 +291,7 @@ func StartSupervisor(ctx context.Context, torrentFile TorrentFile, port int) {
 			case IdReady:
 				// slog.Info("Supervisor: isReady")
 				peerState[msg.PeerId] = PeerWaiting
-				resetTasks(&pieceArray, msg.PeerId, peerTasks, tasksPeers)
+				// resetTasks(&pieceArray, msg.PeerId, peerTasks, tasksPeers)
 				if peerState[msg.PeerId] == PeerWaiting {
 					task, err := findTask(&pieceArray, peerBitFields[msg.PeerId], int(pieceArray.pieceLength), tasksPeers, peerTasks, msg.PeerId)
 					if err == nil {

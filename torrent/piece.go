@@ -109,11 +109,9 @@ func StartPieceWorker(ctx context.Context, pieces *PieceArray, tf *TorrentFile, 
 			pieces.locks[pieceIndex].Lock()
 			pieces.pieces[pieceIndex].downloaded = util.InsertRange(pieces.pieces[pieceIndex].downloaded, newBlock.Offset, newBlock.Offset+newBlock.Length)
 			checkRange := util.Contains(pieces.pieces[pieceIndex].downloaded, pieceLowerBound, pieceUpperBound)
-			pieces.locks[pieceIndex].Unlock()
 
 			if checkRange {
 				pieceCopy := make([]byte, len(pieces.pieces[pieceIndex].data))
-				pieces.locks[pieceIndex].Lock()
 				copy(pieceCopy, pieces.pieces[pieceIndex].data)
 				if Validate(pieceCopy, tf.Pieces[pieceIndex]) {
 					pieces.pieces[pieceIndex].state = Validated
@@ -126,11 +124,14 @@ func StartPieceWorker(ctx context.Context, pieces *PieceArray, tf *TorrentFile, 
 					pieces.validLock.Unlock()
 					msg := message.StatDiff{Validated: pieceUpperBound - pieceLowerBound}
 					ch.PostStatsChannel <- msg
+
 				} else {
 					pieces.locks[pieceIndex].Unlock()
 					DeletePiece(int(pieceIndex), pieces)
 				}
 
+			} else {
+				pieces.locks[pieceIndex].Unlock()
 			}
 
 		case ready := (<-ch.FileWorkerReady):
